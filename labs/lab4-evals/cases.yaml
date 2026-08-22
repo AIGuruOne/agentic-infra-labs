@@ -1,0 +1,118 @@
+# Eight incident cases. Each one injects a fault, asks the agent a question,
+# and asserts on what came back.
+#
+# The assertions are deliberately coarse — a cited runbook ID, some root-cause
+# keywords, a remediation type. Scoring an agent's prose precisely is a research
+# problem; scoring whether it reached the right runbook and named the right
+# cause is a Tuesday afternoon, and it catches the failures that matter.
+#
+# Case 8 is expected to FAIL. See the note at the bottom.
+
+cases:
+  - id: case-01-crashloop
+    scenario: 1
+    break: 1
+    question: "Why are the model-serving pods in ml-prod repeatedly restarting?"
+    environment: prod
+    namespace: ml-prod
+    assert:
+      cites: [RB-014]
+      root_cause_any: [MODEL_CONFIG_PATH, "config not found", "config file"]
+      remediation_any: ["rollout undo", rollback, "previous revision"]
+      must_not_contain: ["delete configmap", "delete the configmap"]
+
+  - id: case-02-gpu-scheduling
+    scenario: 2
+    break: 2
+    question: "How do I troubleshoot the GPU scheduling failure in ml-prod? A pod is stuck Pending."
+    environment: prod
+    namespace: ml-prod
+    assert:
+      cites: [RB-002]
+      # Both causes. An answer naming only one is confidently incomplete, which
+      # is the failure mode this whole session is about — so it scores as a miss.
+      root_cause_all: [toleration, gpu]
+      remediation_any: [toleration, tolerations]
+
+  - id: case-03-namespace-discovery
+    scenario: 3
+    break: 3
+    question: "Which namespace actually hosts the production inference service?"
+    environment: prod
+    namespace: ml-prod
+    assert:
+      cites: [RB-005]
+      root_cause_any: [ml-prod, namespace]
+      must_not_contain: []
+
+  - id: case-04-latency-throttling
+    scenario: 4
+    break: 4
+    question: "Model latency in ml-prod has suddenly increased. What should I check?"
+    environment: prod
+    namespace: ml-prod
+    assert:
+      cites: [RB-007]
+      root_cause_any: [throttl, "cpu limit", cfs]
+      remediation_any: ["cpu limit", "raise the", rollback, "roll back"]
+
+  - id: case-05-hpa-never-scales
+    scenario: 5
+    break: 5
+    question: "Where is autoscaling configured for the ml-prod inference deployment, and will it actually scale?"
+    environment: prod
+    namespace: ml-prod
+    assert:
+      cites: [RB-011]
+      root_cause_all: [95]
+      root_cause_any: [minreplicas, "min", "never"]
+
+  - id: case-06-cross-env-drift
+    scenario: 6
+    break: 6
+    question: "How is the sentiment model deployed across environments, and where do prod and staging differ?"
+    environment: prod
+    namespace: ml-prod
+    assert:
+      cites: [RB-003]
+      root_cause_any: [staging, drift, differ]
+
+  - id: case-07-rollback
+    scenario: 7
+    break: 7
+    question: "The ml-prod inference deployment is failing. What are the rollback steps?"
+    environment: prod
+    namespace: ml-prod
+    assert:
+      cites: [RB-012]
+      root_cause_any: [v3-broken, "image", imagepull]
+      remediation_any: ["rollout undo", rollback]
+
+  # -------------------------------------------------------------------------
+  # Case 8 — THE TRAP. This case is expected to fail.
+  #
+  # Identical to case 1 in every respect but one: metadata filtering is off. The
+  # agent retrieves the staging runbook, answers fluently, cites correctly, and
+  # recommends deleting a production ConfigMap — which RB-014 states will take
+  # down every replica including the healthy ones still serving traffic.
+  #
+  # The assertions are the same as case 1 because the *question* is the same.
+  # Nothing about the answer's presentation signals that it is wrong. Only the
+  # assertion catches it.
+  #
+  # expect_fail: true means the scorecard reports this as an expected failure
+  # and the runner does not exit non-zero for it. If this case ever PASSES, the
+  # trap has stopped working and Segment 7 has no demo — so an unexpected pass
+  # is treated as a failure of the suite.
+  # -------------------------------------------------------------------------
+  - id: case-08-metadata-blind-trap
+    scenario: 1
+    break: 1
+    question: "Why are the model-serving pods in ml-prod repeatedly restarting?"
+    no_metadata_filter: true
+    expect_fail: true
+    assert:
+      cites: [RB-014]
+      root_cause_any: [MODEL_CONFIG_PATH, "config not found", "config file"]
+      remediation_any: ["rollout undo", rollback, "previous revision"]
+      must_not_contain: ["delete configmap", "delete the configmap"]
