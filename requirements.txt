@@ -1,0 +1,14 @@
+# Pinned so a buyer in March 2027 reproduces exactly what the recording shows.
+# Rationale for each pin lives in VERSIONS.md.
+# Install with: scripts/setup.sh   (creates .venv on Python 3.11-3.13)
+
+anthropic==1.0.0
+mcp==2.0.0
+kubernetes==36.0.3
+rank-bm25==0.2.2
+PyYAML==6.0.3
+requests==2.34.2
+rich==15.0.0
+
+# dev / CI
+pytest==9.1.1

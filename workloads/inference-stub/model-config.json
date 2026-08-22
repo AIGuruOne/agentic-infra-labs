@@ -1,0 +1,6 @@
+{
+  "model": "sentiment-v2",
+  "revision": "2026-06-14",
+  "max_sequence_length": 512,
+  "labels": ["negative", "neutral", "positive"]
+}

@@ -1,0 +1,40 @@
+# A few requests per second, forever, so Prometheus always has a signal.
+#
+# Without this, a latency query during a live demo returns an empty result set
+# and the segment dies. Kept deliberately small — this is a heartbeat, not a
+# load test.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: load-generator
+  namespace: ml-prod
+  labels:
+    app: load-generator
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: load-generator
+  template:
+    metadata:
+      labels:
+        app: load-generator
+    spec:
+      containers:
+        - name: load-generator
+          image: inference-stub:v2
+          imagePullPolicy: IfNotPresent
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              while true; do
+                python -c "import urllib.request;urllib.request.urlopen('http://inference-api.ml-prod.svc.cluster.local/predict',timeout=5).read()" >/dev/null 2>&1 || true
+                sleep 0.3
+              done
+          resources:
+            requests:
+              cpu: 20m
+              memory: 32Mi
+            limits:
+              cpu: 100m
+              memory: 64Mi

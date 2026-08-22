@@ -1,0 +1,20 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: ml-prod
+  labels:
+    environment: prod
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: ml-staging
+  labels:
+    environment: staging
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: monitoring
+  labels:
+    environment: shared

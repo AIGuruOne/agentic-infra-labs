@@ -1,0 +1,29 @@
+# secrets — never commit
+.env
+
+# python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+.pytest_cache/
+
+# agent runtime output
+audit.jsonl
+labs/lab3-guardrails/audit.jsonl
+
+# eval output (the committed replay scorecard is scorecard.json — keep that)
+labs/lab4-evals/runs/
+
+# generated kubeconfig for the scoped agent ServiceAccount
+cluster/rbac/agent.kubeconfig
+
+# macOS
+.DS_Store
+
+# Internal build brief and the marketing syllabus — these are working documents
+# for the session, not part of what ships to attendees. Kept out of the repo
+# rather than deleted.
+build-spec.md
+Packt_Syllabus_Agentic_AI_Infra_Aug2026.pdf

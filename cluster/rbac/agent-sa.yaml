@@ -1,0 +1,123 @@
+# The agent's credentials. This is the blast radius.
+#
+# Two Roles in two namespaces, and nothing cluster-scoped except a read on
+# nodes — which the GPU scheduling scenario genuinely needs, and which cannot
+# be namespaced. There is no ClusterRoleBinding to anything else, so the agent
+# reading kube-system fails with a 403 from the API server rather than from a
+# check in our own code. That distinction is the whole point of the segment:
+# a guardrail the agent could talk its way past is not a guardrail.
+#
+# Note what is NOT here: secrets. An agent that can read pod specs and logs
+# across two namespaces is already a meaningful amount of trust; one that can
+# read Secrets is a different conversation with your security team.
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: infra-agent
+  namespace: ml-prod
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: infra-agent-token
+  namespace: ml-prod
+  annotations:
+    kubernetes.io/service-account.name: infra-agent
+type: kubernetes.io/service-account-token
+---
+# Read + the narrow set of writes scenario 07 needs, in ml-prod.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: infra-agent
+  namespace: ml-prod
+rules:
+  - apiGroups: [""]
+    resources: [pods, pods/log, services, events, configmaps, resourcequotas]
+    verbs: [get, list, watch]
+  - apiGroups: ["apps"]
+    resources: [deployments, replicasets, statefulsets]
+    verbs: [get, list, watch]
+  - apiGroups: ["autoscaling"]
+    resources: [horizontalpodautoscalers]
+    verbs: [get, list, watch]
+  # Writes. Scoped to exactly what a rollback needs: patch a Deployment and
+  # read back its ReplicaSet history. No delete, anywhere.
+  - apiGroups: ["apps"]
+    resources: [deployments]
+    verbs: [patch, update]
+  - apiGroups: ["apps"]
+    resources: [deployments/rollback]
+    verbs: [create]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: infra-agent
+  namespace: ml-prod
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: infra-agent
+subjects:
+  - kind: ServiceAccount
+    name: infra-agent
+    namespace: ml-prod
+---
+# Read-only in staging. The agent compares environments; it never changes the
+# one it was not asked about.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: infra-agent
+  namespace: ml-staging
+rules:
+  - apiGroups: [""]
+    resources: [pods, pods/log, services, events, configmaps, resourcequotas]
+    verbs: [get, list, watch]
+  - apiGroups: ["apps"]
+    resources: [deployments, replicasets, statefulsets]
+    verbs: [get, list, watch]
+  - apiGroups: ["autoscaling"]
+    resources: [horizontalpodautoscalers]
+    verbs: [get, list, watch]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: infra-agent
+  namespace: ml-staging
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: infra-agent
+subjects:
+  - kind: ServiceAccount
+    name: infra-agent
+    namespace: ml-prod
+---
+# Nodes are cluster-scoped and there is no namespaced alternative. Scenario 02
+# needs to see that the GPU node advertises 2 GPUs and carries a taint, so this
+# read is load-bearing, not convenience.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: infra-agent-nodes
+rules:
+  - apiGroups: [""]
+    resources: [nodes]
+    verbs: [get, list]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: infra-agent-nodes
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: infra-agent-nodes
+subjects:
+  - kind: ServiceAccount
+    name: infra-agent
+    namespace: ml-prod

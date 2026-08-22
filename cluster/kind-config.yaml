@@ -1,0 +1,43 @@
+# 1 control-plane + 2 workers.
+#
+# worker2 is the simulated GPU pool. Nothing here is real NVIDIA hardware: the
+# labels make it *look* like a g5.xlarge to anything reading node metadata, the
+# taint makes the scheduler treat it as a dedicated pool, and the extended
+# resource nvidia.com/gpu is patched onto the node status afterwards by
+# cluster/gpu-sim/patch-node.sh.
+#
+# That combination is what makes scenario 02 a genuine two-cause diagnosis: a
+# pod asking for 4 GPUs on a node advertising 2, with no toleration for the
+# taint. Both are true at once, and the agent has to find both.
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+name: agentic-infra-labs
+nodes:
+  - role: control-plane
+    kubeadmConfigPatches:
+      - |
+        kind: InitConfiguration
+        nodeRegistration:
+          kubeletExtraArgs:
+            node-labels: "ingress-ready=true"
+
+  # General compute pool.
+  - role: worker
+    labels:
+      node.kubernetes.io/instance-type: m5.xlarge
+      workload: general
+
+  # Simulated GPU pool.
+  - role: worker
+    labels:
+      node.kubernetes.io/instance-type: g5.xlarge
+      nvidia.com/gpu.present: "true"
+      workload: gpu
+    kubeadmConfigPatches:
+      - |
+        kind: JoinConfiguration
+        nodeRegistration:
+          taints:
+            - key: "nvidia.com/gpu"
+              value: "present"
+              effect: "NoSchedule"
