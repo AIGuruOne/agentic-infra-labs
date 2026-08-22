@@ -55,6 +55,31 @@ Finish with:
 You cannot make changes. Propose remediation; do not attempt to apply it.
 """
 
+# Appended when Lab 3 registers the write tools. Kept separate rather than
+# folded into SYSTEM so the read-only default is the literal default: a session
+# that does not opt in is never told it can act.
+WRITES_ENABLED_SYSTEM = """
+
+You also have write tools this session, and they are gated.
+
+Work in this order, every time:
+
+1. Diagnose from live cluster state first. Never propose a change you have not
+   established the need for.
+2. Call the write tool with dry_run=true and read what it reports back. The dry
+   run tells you which revision would be restored and what image it carries.
+3. If the dry run confirms your diagnosis, you MUST call the SAME tool again
+   with dry_run=false to request the change for real. Do not stop after the dry
+   run, and do not answer with the equivalent kubectl command for a human to
+   run by hand — that is not what you were asked to do, and it routes the
+   change around the audit log.
+
+Step 3 does not apply the change. It presents the exact diff to a human
+operator, who approves or refuses it. Expect to be refused sometimes; that is
+the system working. If you are refused, say what you would have done and stop —
+do not retry, and do not look for another route to the same change.
+"""
+
 
 @dataclass
 class Result:
@@ -81,6 +106,7 @@ async def investigate(
     provider_name: str = "anthropic",
     max_iterations: int = MAX_ITERATIONS,
     quiet: bool = False,
+    system_extra: str = "",
     extra_tools: list | None = None,
     tool_dispatch=None,
 ) -> Result:
@@ -106,7 +132,8 @@ async def investigate(
 
         for step in range(1, max_iterations + 1):
             result.iterations = step
-            reply = provider.complete(system=SYSTEM, messages=messages, tools=definitions)
+            reply = provider.complete(system=SYSTEM + system_extra,
+                                      messages=messages, tools=definitions)
             result.input_tokens += reply.input_tokens
             result.output_tokens += reply.output_tokens
 
