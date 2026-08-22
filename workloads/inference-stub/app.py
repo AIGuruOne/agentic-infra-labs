@@ -4,7 +4,8 @@ Deliberately small. Everything the labs need to break is controlled by an env
 var, because a fault you inject by editing a Deployment's env is reproducible
 by a script, and a fault you inject by hand is not.
 
-    LATENCY_MS         artificial per-request delay          (scenario 04)
+    LATENCY_MS         artificial per-request sleep
+    CPU_BURN_MS        per-request BUSY work, not sleep      (scenario 04)
     FAIL_ON_BOOT       exit non-zero N seconds after start   (crashloop)
     MODEL_CONFIG_PATH  must exist at boot, else legible fail (scenario 01)
     ERROR_RATE         fraction of /predict returning 500    (0.0 - 1.0)
@@ -22,6 +23,10 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 MODEL_NAME = os.environ.get("MODEL_NAME", "sentiment-v2")
 ENVIRONMENT = os.environ.get("ENVIRONMENT", "unknown")
 LATENCY_MS = int(os.environ.get("LATENCY_MS", "15"))
+# Sleeping does not consume CPU, so a sleep-based delay can never be throttled
+# by a CPU limit. Scenario 04 claims the agent will find throttling, so the
+# work it finds has to be real: CPU_BURN_MS spins.
+CPU_BURN_MS = int(os.environ.get("CPU_BURN_MS", "0"))
 ERROR_RATE = float(os.environ.get("ERROR_RATE", "0.0"))
 FAIL_ON_BOOT = os.environ.get("FAIL_ON_BOOT", "")
 MODEL_CONFIG_PATH = os.environ.get("MODEL_CONFIG_PATH", "")
@@ -136,6 +141,11 @@ class Handler(BaseHTTPRequestHandler):
         start = time.perf_counter()
         if LATENCY_MS:
             time.sleep(LATENCY_MS / 1000.0)
+        if CPU_BURN_MS:
+            deadline = time.perf_counter() + CPU_BURN_MS / 1000.0
+            x = 0
+            while time.perf_counter() < deadline:
+                x += 1  # noqa: F841  — the point is the cycles, not the value
         is_error = ERROR_RATE > 0 and random.random() < ERROR_RATE
         elapsed = time.perf_counter() - start
         observe(elapsed, is_error)
@@ -154,5 +164,5 @@ class Handler(BaseHTTPRequestHandler):
 
 if __name__ == "__main__":
     boot_checks()
-    print(f"{MODEL_NAME} serving on :8080 (env={ENVIRONMENT}, latency={LATENCY_MS}ms, error_rate={ERROR_RATE})", flush=True)
+    print(f"{MODEL_NAME} serving on :8080 (env={ENVIRONMENT}, latency={LATENCY_MS}ms, cpu_burn={CPU_BURN_MS}ms, error_rate={ERROR_RATE})", flush=True)
     ThreadingHTTPServer(("0.0.0.0", 8080), Handler).serve_forever()

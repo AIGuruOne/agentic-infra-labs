@@ -24,8 +24,12 @@ row() {
   printf "  %-38s ${color}%-6s${RESET} ${DIM}%s${RESET}\n" "$name" "$status" "$detail"
 }
 
-ready_count() { "${KUBECTL[@]}" -n "$1" get pods -l "app=$2" \
-  -o jsonpath='{range .items[*]}{.status.conditions[?(@.type=="Ready")].status}{"\n"}{end}' 2>/dev/null | grep -c True; }
+# Read readyReplicas off the Deployment, not off pods matching a label.
+# During a rollout the old ReplicaSet's pods are still Ready and still carry
+# the label, so counting pods reports 6/3 and looks like a bug to whoever is
+# watching.
+ready_count() { "${KUBECTL[@]}" -n "$1" get deploy "$2" -o jsonpath='{.status.readyReplicas}' 2>/dev/null || true; }
+want_count()  { "${KUBECTL[@]}" -n "$1" get deploy "$2" -o jsonpath='{.spec.replicas}'        2>/dev/null || true; }
 
 echo
 echo "${BOLD}agentic-infra-labs · cluster health${RESET}"
@@ -65,24 +69,23 @@ for ns in ml-prod ml-staging monitoring; do
 done
 
 # --- workloads --------------------------------------------------------------
-PROD=$(ready_count ml-prod inference-api)
-[ "${PROD:-0}" -ge 3 ] && row "ml-prod/inference-api pods Ready" PASS "${PROD}/3" \
-                       || row "ml-prod/inference-api pods Ready" FAIL "${PROD:-0}/3"
-
-STG=$(ready_count ml-staging inference-api)
-[ "${STG:-0}" -ge 1 ] && row "ml-staging/inference-api pods Ready" PASS "${STG}/1" \
-                      || row "ml-staging/inference-api pods Ready" FAIL "${STG:-0}/1"
-
-LOAD=$(ready_count ml-prod load-generator)
-[ "${LOAD:-0}" -ge 1 ] && row "Load generator Ready" PASS "${LOAD}/1" \
-                       || row "Load generator Ready" FAIL "${LOAD:-0}/1"
+for spec in "ml-prod inference-api" "ml-staging inference-api" "ml-prod load-generator"; do
+  set -- $spec; ns="$1"; dep="$2"
+  have=$(ready_count "$ns" "$dep"); want=$(want_count "$ns" "$dep")
+  have=${have:-0}; want=${want:-0}
+  if [ "$want" -gt 0 ] && [ "$have" -eq "$want" ]; then
+    row "${ns}/${dep} Ready" PASS "${have}/${want}"
+  else
+    row "${ns}/${dep} Ready" FAIL "${have}/${want:-?}"
+  fi
+done
 
 HPA=$("${KUBECTL[@]}" -n ml-prod get hpa inference-api -o jsonpath='{.spec.maxReplicas}' 2>/dev/null || true)
 [ -n "$HPA" ] && row "HPA present in ml-prod" PASS "maxReplicas=${HPA}" \
               || row "HPA present in ml-prod" FAIL "missing"
 
 # --- prometheus -------------------------------------------------------------
-PROM=$(ready_count monitoring prometheus)
+PROM=$(ready_count monitoring prometheus); PROM=${PROM:-0}
 [ "${PROM:-0}" -ge 1 ] && row "Prometheus Ready" PASS "${PROM}/1" \
                        || row "Prometheus Ready" FAIL "${PROM:-0}/1"
 
