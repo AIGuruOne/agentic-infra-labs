@@ -13,6 +13,7 @@ Messages API.
 
 from __future__ import annotations
 
+import json
 import os
 from dataclasses import dataclass
 from pathlib import Path
@@ -51,12 +52,28 @@ class NoCredentials(RuntimeError):
 
 
 @dataclass
+class ToolCall:
+    id: str
+    name: str
+    arguments: dict
+
+
+@dataclass
 class Reply:
-    """One assistant turn, provider-independent."""
+    """One assistant turn, normalised so the agent loop never branches on
+    which provider produced it.
+
+    `assistant_message` is the turn in the provider's own wire format, to be
+    appended to the history verbatim. Reconstructing it from `text` loses
+    thinking blocks and tool-call ids, and the next request fails.
+    """
 
     text: str
-    content: list  # raw provider content blocks — the agent loop needs these verbatim
+    thinking: str
+    tool_calls: list["ToolCall"]
+    assistant_message: dict
     stop_reason: str | None
+    wants_tools: bool = False
     input_tokens: int = 0
     output_tokens: int = 0
 
@@ -94,14 +111,35 @@ class AnthropicProvider:
             kwargs["tools"] = tools
 
         response = self._client.messages.create(**kwargs)
-        text = "".join(b.text for b in response.content if b.type == "text")
         return Reply(
-            text=text,
-            content=response.content,
+            text="".join(b.text for b in response.content if b.type == "text"),
+            thinking="".join(
+                getattr(b, "thinking", "") for b in response.content if b.type == "thinking"
+            ),
+            tool_calls=[
+                ToolCall(id=b.id, name=b.name,
+                         arguments=b.input if isinstance(b.input, dict) else json.loads(b.input))
+                for b in response.content if b.type == "tool_use"
+            ],
+            assistant_message={"role": "assistant", "content": response.content},
             stop_reason=response.stop_reason,
+            wants_tools=response.stop_reason == "tool_use",
             input_tokens=response.usage.input_tokens,
             output_tokens=response.usage.output_tokens,
         )
+
+    @staticmethod
+    def tool_result_messages(results: list[tuple[str, str]]) -> list[dict]:
+        """All tool_results for one assistant turn go back in a SINGLE user
+        message. Splitting them across messages teaches the model to stop
+        making parallel tool calls."""
+        return [{
+            "role": "user",
+            "content": [
+                {"type": "tool_result", "tool_use_id": call_id, "content": output}
+                for call_id, output in results
+            ],
+        }]
 
 
 class OpenAIProvider:
@@ -119,17 +157,11 @@ class OpenAIProvider:
         self._client = OpenAI()
 
     def complete(self, *, system, messages, tools=None, max_tokens=8000) -> Reply:
-        oai_messages = [{"role": "system", "content": system}]
-        for m in messages:
-            content = m["content"]
-            if isinstance(content, list):
-                content = "".join(
-                    b.get("text", "") if isinstance(b, dict) else getattr(b, "text", "")
-                    for b in content
-                )
-            oai_messages.append({"role": m["role"], "content": content})
-
-        kwargs = dict(model=self.model, max_tokens=max_tokens, messages=oai_messages)
+        kwargs = dict(
+            model=self.model,
+            max_tokens=max_tokens,
+            messages=[{"role": "system", "content": system}, *messages],
+        )
         if tools:
             kwargs["tools"] = [
                 {"type": "function", "function": {
@@ -139,13 +171,31 @@ class OpenAIProvider:
             ]
         response = self._client.chat.completions.create(**kwargs)
         choice = response.choices[0]
+        calls = choice.message.tool_calls or []
         return Reply(
             text=choice.message.content or "",
-            content=choice.message,
+            thinking="",  # no equivalent on this path
+            tool_calls=[
+                ToolCall(id=c.id, name=c.function.name,
+                         arguments=json.loads(c.function.arguments or "{}"))
+                for c in calls
+            ],
+            assistant_message=choice.message.model_dump(exclude_none=True),
             stop_reason=choice.finish_reason,
+            wants_tools=bool(calls),
             input_tokens=response.usage.prompt_tokens,
             output_tokens=response.usage.completion_tokens,
         )
+
+    @staticmethod
+    def tool_result_messages(results: list[tuple[str, str]]) -> list[dict]:
+        """OpenAI wants one message per tool result, not one message holding
+        all of them. This is the only place in the repo where the two
+        providers' shapes genuinely differ."""
+        return [
+            {"role": "tool", "tool_call_id": call_id, "content": output}
+            for call_id, output in results
+        ]
 
 
 def get_provider(name: str = "anthropic", **kwargs):
