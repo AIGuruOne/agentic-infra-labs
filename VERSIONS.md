@@ -13,7 +13,8 @@ GiB allocated.**
 
 | | measured | budget |
 |---|---|---|
-| `make cluster` from clean | **44 s** | under 5 min |
+| `make cluster` from clean (no cached kind image) | **1 m 31 s** | under 5 min |
+| `make cluster` reusing an existing cluster | **44 s** | |
 | Peak container RAM under load | **1.46 GiB** | under 6 GB |
 | — control-plane | 779 MiB | |
 | — worker | 539 MiB | |
