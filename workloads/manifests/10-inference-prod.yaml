@@ -49,6 +49,20 @@ spec:
               value: "15"
             - name: ERROR_RATE
               value: "0.0"
+            # These two are declared at their baseline values ONLY so that
+            # `kubectl apply` can reset them. break-4 sets CPU_BURN_MS and
+            # break-6 sets FEATURE_FLAGS via `kubectl set env`, which does not
+            # update last-applied-configuration — so a three-way merge emits no
+            # delete directive for an entry that exists only in the live object,
+            # and `make reset` silently leaves the fault in place.
+            #
+            # This was not hypothetical: it left prod burning 250ms of CPU per
+            # request permanently, so the "baseline" p95 sat at 488ms instead of
+            # 24ms and scenario 04's latency step-change could never be observed.
+            - name: CPU_BURN_MS
+              value: "0"
+            - name: FEATURE_FLAGS
+              value: ""
           resources:
             requests:
               cpu: 100m

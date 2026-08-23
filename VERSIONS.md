@@ -13,15 +13,22 @@ GiB allocated.**
 
 | | measured | budget |
 |---|---|---|
-| `make cluster` from clean (no cached kind image) | **1 m 31 s** | under 5 min |
+| `make cluster` from clean (no cached kind image) | **1 m 41 s** | under 5 min |
 | `make cluster` reusing an existing cluster | **44 s** | |
-| Peak container RAM under load | **1.46 GiB** | under 6 GB |
-| — control-plane | 779 MiB | |
-| — worker | 539 MiB | |
-| — worker2 (GPU pool) | 196 MiB | |
+| Peak container RAM under load | **1.29 GiB** | under 6 GB |
 | p95 inference latency, healthy | **24 ms** | |
 | p95 under `break-4` | **488 ms** | visibly different |
-| CFS throttling under `break-4` | **0.22 s/s** | non-zero and legible |
+| CFS throttling under `break-4` | **0.20 s/s** | non-zero and legible |
+
+**These figures were re-measured after a bug that invalidated the originals.**
+`make reset` could not remove environment variables that a break script added
+with `kubectl set env`, because `set env` does not update
+last-applied-configuration and a three-way merge emits no delete directive for
+an entry present only in the live object. `break-4`'s `CPU_BURN_MS=250`
+therefore persisted through every reset, so the cluster's "baseline" p95 was
+488 ms rather than 24 ms — meaning scenario 04's latency *step change*, the
+whole point of the scenario, could never actually be observed. The manifests
+now declare every variable the faults touch, and a test enforces it.
 
 **On the RAM figure.** 1.46 GiB is what `docker stats` reports for the three
 kind containers, which is the number the 6 GB budget is about. On macOS this is

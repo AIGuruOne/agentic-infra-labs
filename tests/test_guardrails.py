@@ -176,3 +176,83 @@ def test_audit_log_is_jsonl_and_records_reads_too(guard_factory):
         assert {"timestamp", "tool", "arguments", "approval", "result_summary"} <= entry.keys()
     assert json.loads(lines[0])["approval"] == "n/a"
     assert json.loads(lines[1])["approval"] == "granted"
+
+
+# ---------------------------------------------------------------------------
+# Regressions from the pre-session code review. Each of these shipped, and each
+# failed in a way that produced no error and no visible symptom.
+# ---------------------------------------------------------------------------
+
+def test_scale_to_zero_is_refused_before_the_human_is_asked(guard_factory):
+    """This check used to live in _execute, downstream of the approval gate.
+
+    The operator was shown an approval prompt for an outage-causing change,
+    approved it, the write was then refused — and the audit recorded "granted".
+    An audit log that says a production write was granted when it never
+    happened is worse than no audit log.
+    """
+    g = guard_factory(allow_writes=True, approve=True)
+    out = g.handle_write("scale_deployment",
+                         {"namespace": "ml-prod", "name": "inference-api",
+                          "replicas": 0, "dry_run": False})
+    assert out.startswith("REFUSED")
+    assert _approvals(g) == ["refused_unsafe"]
+    assert "granted" not in _approvals(g)
+
+
+def test_scale_to_zero_is_refused_even_as_a_dry_run(guard_factory):
+    """A dry run that cheerfully previews '+ replicas: 0' teaches the model the
+    change is available."""
+    g = guard_factory(allow_writes=True, approve=True)
+    out = g.handle_write("scale_deployment",
+                         {"namespace": "ml-prod", "name": "inference-api",
+                          "replicas": 0, "dry_run": True})
+    assert out.startswith("REFUSED")
+
+
+def test_missing_arguments_return_text_instead_of_raising(guard_factory):
+    """_preview indexed arguments directly, so a model that said "deployment"
+    instead of "name" raised KeyError out of dispatch and ended Lab 3 with a
+    traceback mid-demo. Reads have always degraded to text; writes must too."""
+    g = guard_factory(allow_writes=True, approve=True)
+    out = g.handle_write("rollback_deployment",
+                         {"namespace": "ml-prod", "deployment": "inference-api",
+                          "dry_run": True})
+    assert out.startswith("ERROR")
+    assert "name" in out
+    assert _approvals(g) == ["refused_invalid_arguments"]
+
+
+def test_a_failed_preview_never_reaches_the_approval_prompt(tmp_path, monkeypatch):
+    """_kubectl returns stdout+stderr, so ignoring the exit code rendered
+    "- image: Error from server (NotFound)..." into the diff and then asked a
+    human to approve it. The gate's entire value is that the human is looking at
+    the real object."""
+    from agent.guardrails import Guardrails
+
+    g = Guardrails(allow_writes=True)
+    g.audit.path = tmp_path / "audit.jsonl"
+    monkeypatch.setattr(g, "_container_of", lambda args: {})
+
+    asked = []
+    monkeypatch.setattr(g, "_approve", lambda *a, **k: asked.append(a) or True)
+
+    out = g.handle_write("rollback_deployment",
+                         {"namespace": "ml-prod", "name": "gone", "dry_run": False})
+    assert out.startswith("ERROR")
+    assert asked == [], "a human was prompted to approve an undescribable change"
+    assert [e["approval"] for e in g.audit.entries()] == ["refused_preview_failed"]
+
+
+def test_rollback_preview_diffs_more_than_the_image():
+    """break-1 changes MODEL_CONFIG_PATH and leaves the image alone, and
+    scenario 01's prescribed remediation is `rollout undo`. An image-only diff
+    rendered as "- image: v2 / + image: v2" and asked a human to approve a
+    production change while showing them nothing changing."""
+    import inspect
+
+    from agent.guardrails import Guardrails
+
+    source = inspect.getsource(Guardrails._describe_container)
+    assert "env" in source and "resources" in source, \
+        "the rollback preview must diff env and resources, not only the image"

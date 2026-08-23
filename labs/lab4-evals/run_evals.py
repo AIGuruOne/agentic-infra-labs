@@ -40,9 +40,23 @@ BOLD, DIM, RESET = "\033[1m", "\033[2m", "\033[0m"
 GREEN, RED, YELLOW, CYAN = "\033[32m", "\033[31m", "\033[33m", "\033[36m"
 
 
-def _run(script: str) -> None:
-    subprocess.run([str(REPO_ROOT / script)], check=True,
-                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+def _run(script: str) -> bool:
+    """Run a fault script. Report failure; never abort the sweep.
+
+    reset.sh ends with `exec verify.sh`, which exits non-zero if any health row
+    FAILs — including "Prometheus has stub metrics", which verify itself
+    annotates as "scrape takes ~30s" while reset sleeps only 15. With
+    check=True one such blip anywhere in an eight-case run raised
+    CalledProcessError, and because the scorecard is only written after every
+    case completes, it discarded the whole sweep: minutes of wall-clock and
+    real API spend, thrown away by a transient scrape timing.
+    """
+    proc = subprocess.run([str(REPO_ROOT / script)],
+                          stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    if proc.returncode != 0:
+        print(f"  {YELLOW}warning: {script} exited {proc.returncode} — continuing{RESET}")
+        return False
+    return True
 
 
 def grade(answer: str, spec: dict) -> tuple[bool, list[str]]:
@@ -189,18 +203,36 @@ def main() -> int:
     print(f"{DIM}Running {len(cases)} case(s) live. A full sweep takes minutes —")
     print(f"use --replay on camera.{RESET}")
 
-    results = [asyncio.run(run_case(c, provider=args.provider, settle=args.settle))
-               for c in cases]
-    code = scorecard(results)
+    from agent.provider import get_provider
+    model = get_provider(args.provider).model
 
-    if args.save:
-        from agent.provider import get_provider
+    def persist(rs):
         SCORECARD.write_text(json.dumps({
             "recorded_at": time.strftime("%Y-%m-%d %H:%M:%S%z"),
-            "provider": args.provider,
-            "model": get_provider(args.provider).model,
-            "results": results,
+            "provider": args.provider, "model": model, "results": rs,
         }, indent=2) + "\n")
+
+    results = []
+    for c in cases:
+        try:
+            results.append(asyncio.run(run_case(c, provider=args.provider, settle=args.settle)))
+        except Exception as e:                       # noqa: BLE001
+            print(f"  {RED}ERROR{RESET} {c['id']} raised {type(e).__name__}: {e}")
+            results.append({
+                "id": c["id"], "status": "fail", "passed": False,
+                "expect_fail": c.get("expect_fail", False),
+                "failures": [f"harness error: {type(e).__name__}: {e}"],
+                "iterations": 0, "tools_used": [], "duration_seconds": 0.0,
+                "input_tokens": 0, "output_tokens": 0, "answer": "",
+            })
+        # Persist after every case. A sweep is minutes of wall-clock and real
+        # API spend; losing all of it to the last case failing is not a
+        # trade-off worth making.
+        if args.save:
+            persist(results)
+
+    code = scorecard(results)
+    if args.save:
         print(f"{DIM}wrote {SCORECARD}{RESET}\n")
 
     _run("faults/reset.sh")

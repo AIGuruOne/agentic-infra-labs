@@ -114,6 +114,7 @@ def main() -> int:
               f"{CYAN}READ-ONLY{RESET} — write tools are registered but will refuse")
     print(f"\n{BOLD}guardrails:{RESET} {banner}")
     print(f"{DIM}credentials: {'ml-prod/infra-agent ServiceAccount' if AGENT_KUBECONFIG.exists() else 'ambient kubeconfig (run make cluster for the scoped one)'}{RESET}")
+    audit_start = len(guard.audit.entries())
     print(f"{DIM}audit log:   {guard.audit.path}{RESET}")
     print(f"{DIM}             tail it live:  tail -f {guard.audit.path.name}{RESET}")
 
@@ -136,7 +137,11 @@ def main() -> int:
     print(f"{BOLD}answer{RESET}\n")
     print(result.answer)
 
-    written = [e for e in guard.audit.entries() if e["approval"] != "n/a"]
+    # Only this run's entries. audit.jsonl is append-only, so replaying the
+    # whole file meant a read-only session printed the "granted" line from an
+    # earlier --allow-writes run — which on a screen share reads as if the
+    # read-only agent just applied a change to production.
+    written = [e for e in guard.audit.entries()[audit_start:] if e["approval"] != "n/a"]
     if written:
         print(f"\n{BOLD}audit trail — every gated decision{RESET}")
         for e in written[-10:]:

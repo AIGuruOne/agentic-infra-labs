@@ -232,3 +232,79 @@ def test_agent_role_grants_no_cluster_wide_service_read():
     cluster_roles = [d for d in docs if d.get("kind") == "ClusterRole"]
     granted = {r for cr in cluster_roles for rule in cr.get("rules", []) for r in rule.get("resources", [])}
     assert granted == {"nodes"}, f"cluster-scoped grants widened to {granted}"
+
+
+def test_manifests_declare_every_env_var_the_faults_set():
+    """`kubectl set env` does not update last-applied-configuration, so a
+    three-way merge emits no delete directive for an env entry that exists only
+    in the live object. Any variable a break script sets that the manifest does
+    not declare survives `make reset` forever.
+
+    This shipped: break-4's CPU_BURN_MS persisted, so prod burned 250ms of CPU
+    per request permanently, the "baseline" p95 sat at 488ms instead of 24ms,
+    and scenario 04's latency step-change could never be observed.
+    """
+    import re
+
+    manifest = (REPO / "workloads" / "manifests" / "10-inference-prod.yaml").read_text()
+    declared = set(re.findall(r"- name: ([A-Z_][A-Z0-9_]*)\n\s+value:", manifest))
+
+    set_by_faults = set()
+    for script in (REPO / "faults").glob("break-*.sh"):
+        for block in re.findall(r"set env deployment/inference-api([^\n]*(?:\\\n[^\n]*)*)",
+                                script.read_text()):
+            set_by_faults |= set(re.findall(r"([A-Z_][A-Z0-9_]*)=", block))
+
+    prod_vars = {v for v in set_by_faults if v not in ("MODEL_NAME",)}
+    missing = prod_vars - declared
+    assert not missing, (
+        f"break scripts set {sorted(missing)} but the prod manifest does not "
+        f"declare them, so `make reset` cannot remove them"
+    )
+
+
+def test_stub_tool_is_not_advertised_until_enabled():
+    """A tool registered but returning 'not implemented' is still offered to the
+    model, which calls it, reads the apology, and has spent an iteration and a
+    few thousand tokens learning nothing."""
+    source = (REPO / "mcp" / "k8s_mcp.py").read_text()
+    live = [ln for ln in source.splitlines()
+            if ln.strip().startswith("def get_resource_quota")]
+    assert not live, "get_resource_quota is registered; it should stay commented until the exercise"
+    assert "# @server.tool()" in source, "the exercise block is missing"
+
+
+def test_optional_provider_is_pinned_like_everything_else():
+    """README calls --provider openai 'a real, tested fallback rather than an
+    aspiration'. An unpinned optional dep makes that true only on the machine it
+    was developed on."""
+    text = (REPO / "requirements.txt").read_text()
+    assert re.search(r"^openai==", text, re.M), "openai is not pinned in requirements.txt"
+
+
+def test_k8s_mcp_imports_without_any_kubeconfig():
+    """Import runs config loading. Raising there kills the MCP subprocess during
+    startup and the caller sees an opaque handshake failure instead of 'run make
+    cluster first' — the exact situation of a Tier B attendee or a fresh CI
+    runner, neither of which has a kubeconfig."""
+    import subprocess
+    import sys
+
+    proc = subprocess.run(
+        [sys.executable, "-c",
+         "import importlib.util;"
+         f"spec=importlib.util.spec_from_file_location('k',{str(REPO / 'mcp' / 'k8s_mcp.py')!r});"
+         "m=importlib.util.module_from_spec(spec);spec.loader.exec_module(m);"
+         "print('CONFIG_ERROR' if m.CONFIG_ERROR else 'loaded')"],
+        capture_output=True, text=True,
+        env={"PATH": os.environ["PATH"], "HOME": "/nonexistent",
+             "AGENT_KUBECONFIG": "/nonexistent"},
+    )
+    assert proc.returncode == 0, f"import raised without a kubeconfig:\n{proc.stderr[-600:]}"
+
+
+def test_readme_bringup_time_matches_versions():
+    """Commit 87dadda corrected VERSIONS and missed the README."""
+    readme = (REPO / "README.md").read_text()
+    assert "~45 seconds" not in readme, \
+        "README still claims the reuse time (45s) for the from-clean path"

@@ -25,6 +25,7 @@ by someone who has approved forty of these already.
 
 from __future__ import annotations
 
+import json
 import subprocess
 from dataclasses import dataclass
 
@@ -151,8 +152,29 @@ class Guardrails:
             return output
         return self.handle_write(name, arguments)
 
+    # Arguments every write tool requires. A model that gets these wrong should
+    # get a message it can recover from, exactly like a failed read does.
+    REQUIRED_ARGS = {
+        "rollback_deployment": ("namespace", "name"),
+        "scale_deployment": ("namespace", "name", "replicas"),
+    }
+
     def handle_write(self, name: str, arguments: dict) -> str:
         namespace = arguments.get("namespace", "")
+
+        # Validate before anything else. _preview and _execute index arguments
+        # directly, so a model that says "deployment" instead of "name" raised
+        # KeyError straight out of dispatch and ended the lab with a traceback
+        # mid-demo. Reads have always degraded to "ERROR: ..." text; writes must
+        # too.
+        missing = [a for a in self.REQUIRED_ARGS.get(name, ()) if a not in arguments]
+        if missing:
+            msg = (f"ERROR: {name} called without required argument(s) "
+                   f"{', '.join(missing)}. Required: "
+                   f"{', '.join(self.REQUIRED_ARGS.get(name, ()))}.")
+            self.audit.record(tool=name, arguments=arguments, result_summary=msg,
+                              approval="refused_invalid_arguments")
+            return msg
 
         # Layer 1 — read-only default.
         if not self.allow_writes:
@@ -171,8 +193,27 @@ class Guardrails:
                               approval="refused_out_of_scope")
             return msg
 
+        # Refuse categorically-unsafe changes BEFORE showing a human anything.
+        # This check used to live in _execute, downstream of the gate: the
+        # operator was shown an approval prompt for an outage-causing change,
+        # approved it, the write was then refused — and the audit line said
+        # "granted". A log that records a production write as granted when it
+        # never happened is worse than no log.
+        if name == "scale_deployment" and int(arguments.get("replicas", 1)) < 1:
+            msg = ("REFUSED: scaling to zero turns a degraded service into an "
+                   "outage, and a stalled rollout is already protecting you by "
+                   "keeping the previous ReplicaSet serving. Propose a rollback "
+                   "instead.")
+            self.audit.record(tool=name, arguments=arguments, result_summary=msg,
+                              approval="refused_unsafe")
+            return msg
+
         dry_run = bool(arguments.get("dry_run", True))
         description, diff = self._preview(name, arguments)
+        if description is None:
+            self.audit.record(tool=name, arguments=arguments, result_summary=diff,
+                              approval="refused_preview_failed")
+            return diff
 
         # Layer 2 — a dry run is not a write. It never reaches the gate.
         if dry_run:
@@ -219,40 +260,131 @@ class Guardrails:
         return answer == "y"
 
     # -- preview / execute ---------------------------------------------------
+    def _container_of(self, args: list[str]) -> dict:
+        """Return the first container spec from a kubectl -o json query."""
+        code, out = _kubectl(*args, "-o", "json", kubeconfig=self.kubeconfig)
+        if code != 0:
+            return {}
+        try:
+            obj = json.loads(out)
+        except json.JSONDecodeError:
+            return {}
+        if obj.get("kind") == "List":
+            return obj
+        spec = obj.get("spec", {}).get("template", {}).get("spec", {})
+        containers = spec.get("containers") or [{}]
+        return containers[0]
+
+    @staticmethod
+    def _describe_container(c: dict) -> dict:
+        """The fields a rollback can actually change, flattened for diffing."""
+        fields = {"image": c.get("image", "<none>")}
+        for e in c.get("env") or []:
+            if e.get("value") is not None:
+                fields[f"env.{e['name']}"] = e["value"]
+        res = c.get("resources") or {}
+        for kind in ("requests", "limits"):
+            for k, v in (res.get(kind) or {}).items():
+                fields[f"{kind}.{k}"] = str(v)
+        return fields
+
+    def _preview_rollback(self, ns: str, dep: str) -> tuple[str, str]:
+        """Show what `rollout undo` would actually change.
+
+        The obvious implementation compares image tags, and it is wrong in the
+        most important case in this repo. break-1 changes MODEL_CONFIG_PATH, an
+        environment variable, and leaves the image alone — so an image-only diff
+        renders as
+
+            - image: inference-stub:v2
+            + image: inference-stub:v2
+
+        and asks a human to approve a production change while showing them
+        nothing changing. A gate that under-reports the change it is gating is
+        worse than no gate, because it manufactures the appearance of review.
+
+        So diff the whole container: image, environment, requests and limits.
+        """
+        container = self._container_of(["-n", ns, "get", "deploy", dep])
+        if not container:
+            return None, (f"ERROR: could not read deployment {ns}/{dep} to build a "
+                          f"preview. Refusing to prompt for approval of a change we "
+                          f"cannot describe.")
+        current = self._describe_container(container)
+
+        # Find the ReplicaSet `rollout undo` would restore: the second-highest
+        # revision. Revisions are not contiguous once revisionHistoryLimit has
+        # pruned, so sort rather than assume N-1 exists.
+        listing = self._container_of(["-n", ns, "get", "rs", "-l", f"app={dep}"])
+        revisions = []
+        for item in listing.get("items", []) if isinstance(listing, dict) else []:
+            rev = (item.get("metadata", {}).get("annotations", {})
+                   .get("deployment.kubernetes.io/revision"))
+            if rev and rev.isdigit():
+                containers = item.get("spec", {}).get("template", {}).get("spec", {}).get("containers") or [{}]
+                revisions.append((int(rev), containers[0]))
+        revisions.sort(key=lambda r: r[0])
+
+        _, history = _kubectl("-n", ns, "rollout", "history", f"deployment/{dep}",
+                              kubeconfig=self.kubeconfig)
+        history_lines = history.splitlines()
+        if len(history_lines) > 6:
+            history = "\n".join(history_lines[:2] + ["  ..."] + history_lines[-4:])
+
+        if len(revisions) < 2:
+            return (f"Roll {ns}/{dep} back one revision.",
+                    f"  deployment {ns}/{dep}\n"
+                    f"  WARNING: no previous revision found in history — this "
+                    f"rollback may do nothing.\n\n{history}")
+
+        target_rev, target_container = revisions[-2]
+        target = self._describe_container(target_container)
+
+        changed = sorted(set(current) | set(target))
+        lines = [f"  deployment {ns}/{dep}   (rolling back to revision {target_rev})"]
+        differences = 0
+        for key in changed:
+            before, after = current.get(key, "<unset>"), target.get(key, "<unset>")
+            if before != after:
+                differences += 1
+                lines.append(f"- {key}: {before}")
+                lines.append(f"+ {key}: {after}")
+
+        if differences == 0:
+            # Do not render an empty diff under a confident description.
+            lines.append("  NO CHANGE: revision "
+                         f"{target_rev} has an identical container spec.")
+            lines.append("  This rollback would not alter the running workload.")
+            description = (f"Roll {ns}/{dep} back to revision {target_rev} — which has "
+                           f"the SAME container spec as the current revision. This would "
+                           f"not change anything about the running pods.")
+        else:
+            description = (f"Roll {ns}/{dep} back to revision {target_rev}, changing "
+                           f"{differences} field(s) of the container spec. Pods will be "
+                           f"recreated.")
+
+        return description, "\n".join(lines) + f"\n\n{history}"
+
     def _preview(self, name: str, arguments: dict) -> tuple[str, str]:
         ns, dep = arguments["namespace"], arguments["name"]
 
         if name == "rollback_deployment":
-            _, current = _kubectl("-n", ns, "get", "deploy", dep,
-                                  "-o", "jsonpath={.spec.template.spec.containers[0].image}",
-                                  kubeconfig=self.kubeconfig)
-            _, history = _kubectl("-n", ns, "rollout", "history", f"deployment/{dep}",
-                                  kubeconfig=self.kubeconfig)
-            _, previous = _kubectl(
-                "-n", ns, "get", "rs", "-l", f"app={dep}",
-                "-o", "jsonpath={range .items[*]}{.metadata.annotations.deployment\\.kubernetes\\.io/revision} "
-                      "{.spec.template.spec.containers[0].image}{\"\\n\"}{end}",
-                kubeconfig=self.kubeconfig)
-            revisions = [l.split() for l in previous.splitlines() if l.strip()]
-            revisions.sort(key=lambda r: int(r[0]) if r[0].isdigit() else 0)
-            target = revisions[-2][1] if len(revisions) >= 2 else "<unknown>"
-            description = (f"Roll {ns}/{dep} back one revision, replacing the current "
-                           f"image with the previous one. Pods will be recreated.")
-            # Show only the tail of the history. The operator is deciding about
-            # one rollback, and a wall of revision numbers is the fastest way to
-            # train someone to stop reading approval prompts.
-            history_lines = history.splitlines()
-            if len(history_lines) > 6:
-                history = "\n".join(history_lines[:2] + ["  ..."] + history_lines[-4:])
-            diff = (f"  deployment {ns}/{dep}\n"
-                    f"- image: {current}\n"
-                    f"+ image: {target}\n\n{history}")
-            return description, diff
+            return self._preview_rollback(ns, dep)
 
         if name == "scale_deployment":
             replicas = arguments["replicas"]
-            _, current = _kubectl("-n", ns, "get", "deploy", dep,
-                                  "-o", "jsonpath={.spec.replicas}", kubeconfig=self.kubeconfig)
+            code, current = _kubectl("-n", ns, "get", "deploy", dep,
+                                     "-o", "jsonpath={.spec.replicas}",
+                                     kubeconfig=self.kubeconfig)
+            # Never put an error string where a value belongs. _kubectl returns
+            # stdout+stderr, so ignoring the exit code renders
+            # "- replicas: Error from server (NotFound)..." into the approval
+            # prompt and then asks a human to approve it. The gate's whole value
+            # is that the human is looking at the real object.
+            if code != 0 or not current.strip().isdigit():
+                return None, (f"ERROR: could not read {ns}/{dep} to build a preview "
+                              f"({current.strip()[:200]}). Refusing to prompt for "
+                              f"approval of a change we cannot describe.")
             description = f"Change the replica count of {ns}/{dep} from {current} to {replicas}."
             diff = f"  deployment {ns}/{dep}\n- replicas: {current}\n+ replicas: {replicas}"
             return description, diff
@@ -263,11 +395,32 @@ class Guardrails:
         ns, dep = arguments["namespace"], arguments["name"]
 
         if name == "rollback_deployment":
+            # Snapshot before, so we can report what actually happened rather
+            # than echo kubectl. `rollout undo` prints "rolled back" even when
+            # the previous revision has an identical template and nothing
+            # changed, and reporting APPLIED for a no-op is how an operator ends
+            # up believing an incident is resolved when it is not.
+            before = self._describe_container(
+                self._container_of(["-n", ns, "get", "deploy", dep]))
             code, out = _kubectl("-n", ns, "rollout", "undo", f"deployment/{dep}",
                                  kubeconfig=self.kubeconfig)
+            if code == 0:
+                after = self._describe_container(
+                    self._container_of(["-n", ns, "get", "deploy", dep]))
+                changed = {k for k in set(before) | set(after)
+                           if before.get(k) != after.get(k)}
+                if not changed:
+                    result = (f"NO CHANGE: {out}\n"
+                              f"The previous revision had an identical container spec, so "
+                              f"the running workload is unchanged. Do not treat this as a "
+                              f"resolved incident.")
+                    self.audit.record(tool=name, arguments=arguments,
+                                      result_summary=result, approval="granted")
+                    return result
+                detail = ", ".join(f"{k}: {before.get(k, '<unset>')} -> {after.get(k, '<unset>')}"
+                                   for k in sorted(changed))
+                out = f"{out} ({detail})"
         elif name == "scale_deployment":
-            if int(arguments["replicas"]) < 1:
-                return "REFUSED: scaling to zero turns a degraded service into an outage."
             code, out = _kubectl("-n", ns, "scale", f"deployment/{dep}",
                                  f"--replicas={arguments['replicas']}",
                                  kubeconfig=self.kubeconfig)

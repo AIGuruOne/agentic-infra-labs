@@ -27,7 +27,7 @@ You can run everything live. Before the session:
 
 ```bash
 make setup       # installs kind, kubectl, and a Python venv
-make cluster     # ~45 seconds on an M-series Mac, under 5 minutes anywhere
+make cluster     # ~1m30s from clean on an M-series Mac, under 5 minutes anywhere
 ```
 
 ### Tier B — no Docker on this machine

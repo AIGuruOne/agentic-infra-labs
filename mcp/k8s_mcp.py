@@ -50,15 +50,35 @@ server = MCPServer(
 )
 
 
+CONFIG_ERROR = ""
+
+
 def _load() -> None:
+    """Load credentials, or record why we could not.
+
+    This runs at import. Raising here kills the MCP subprocess during startup,
+    and the caller sees an opaque MCP handshake failure rather than "run
+    `make cluster` first" — which is exactly the situation a Tier B attendee or
+    a fresh CI runner is in, since neither has a kubeconfig at all.
+
+    So: record the problem and let every tool report it as text. An agent can
+    reason about "no cluster credentials"; it cannot reason about a dead pipe.
+    """
+    global CONFIG_ERROR
     kubeconfig = os.environ.get("AGENT_KUBECONFIG", str(AGENT_KUBECONFIG))
-    if Path(kubeconfig).exists():
-        config.load_kube_config(config_file=kubeconfig)
-    else:
-        # Falls back to the ambient context so the tools are usable before
-        # `make cluster` has generated the scoped kubeconfig. The RBAC demo in
-        # Lab 3 needs the scoped one; everything else works either way.
-        config.load_kube_config()
+    try:
+        if Path(kubeconfig).exists():
+            config.load_kube_config(config_file=kubeconfig)
+        else:
+            # Ambient context, so the tools work before `make cluster` has
+            # generated the scoped kubeconfig. Lab 3's RBAC demo needs the
+            # scoped one; everything else works either way.
+            config.load_kube_config()
+    except Exception as e:
+        CONFIG_ERROR = (
+            f"no usable Kubernetes credentials ({type(e).__name__}: {e}). "
+            "Run `make cluster` first, or set AGENT_KUBECONFIG."
+        )
 
 
 _load()
@@ -88,6 +108,10 @@ def _clean_logs(logs) -> str:
         except (ValueError, SyntaxError):
             pass
     return logs or "<no output>"
+
+
+def _no_cluster() -> str:
+    return f"ERROR: {CONFIG_ERROR}"
 
 
 def _err(e: Exception) -> str:
@@ -154,6 +178,8 @@ def list_pods(namespace: str, label_selector: str = "") -> str:
 
     Cheap — one API call regardless of pod count.
     """
+    if CONFIG_ERROR:
+        return _no_cluster()
     try:
         pods = core.list_namespaced_pod(namespace, label_selector=label_selector or None)
     except Exception as e:
@@ -192,6 +218,8 @@ def describe_pod(namespace: str, name: str) -> str:
     Moderately expensive — this is a lot of text. Call it on one pod, not on
     every pod in a namespace.
     """
+    if CONFIG_ERROR:
+        return _no_cluster()
     try:
         p = core.read_namespaced_pod(name, namespace)
     except Exception as e:
@@ -244,6 +272,8 @@ def get_pod_logs(namespace: str, name: str, container: str = "", tail_lines: int
     Expensive in tokens, proportional to tail_lines. Start at 50. Only raise it
     if the failure is genuinely not in the last 50 lines.
     """
+    if CONFIG_ERROR:
+        return _no_cluster()
     try:
         logs = core.read_namespaced_pod_log(
             name, namespace, container=container or None,
@@ -266,6 +296,8 @@ def get_events(namespace: str, limit: int = 20) -> str:
 
     Cheap. Worth calling early on any Pending or BackOff symptom.
     """
+    if CONFIG_ERROR:
+        return _no_cluster()
     try:
         events = core.list_namespaced_event(namespace)
     except Exception as e:
@@ -294,6 +326,8 @@ def list_deployments(namespace: str) -> str:
 
     Cheap.
     """
+    if CONFIG_ERROR:
+        return _no_cluster()
     try:
         deps = apps.list_namespaced_deployment(namespace)
     except Exception as e:
@@ -320,6 +354,8 @@ def get_deployment(namespace: str, name: str) -> str:
 
     Moderate cost.
     """
+    if CONFIG_ERROR:
+        return _no_cluster()
     try:
         d = apps.read_namespaced_deployment(name, namespace)
     except Exception as e:
@@ -361,6 +397,8 @@ def list_services(namespace: str = "") -> str:
 
     Cheap.
     """
+    if CONFIG_ERROR:
+        return _no_cluster()
     if namespace:
         try:
             items = core.list_namespaced_service(namespace).items
@@ -402,6 +440,8 @@ def get_hpa(namespace: str, name: str = "") -> str:
 
     Cheap.
     """
+    if CONFIG_ERROR:
+        return _no_cluster()
     try:
         hpas = ([autoscaling.read_namespaced_horizontal_pod_autoscaler(name, namespace)]
                 if name else
@@ -443,6 +483,8 @@ def get_nodes() -> str:
     Cheap. This is a cluster-scoped read and is the only one the agent's
     credentials permit.
     """
+    if CONFIG_ERROR:
+        return _no_cluster()
     try:
         nodes = core.list_node()
     except Exception as e:
@@ -466,48 +508,49 @@ def get_nodes() -> str:
 # ---------------------------------------------------------------------------
 # Lab 2 extension exercise
 # ---------------------------------------------------------------------------
-# Uncomment the body below (about eight lines) to give the agent a new tool.
+# Uncomment the block below — the decorator, the def, and the body — to give the
+# agent a new tool.
 #
-# Read the docstring first and notice what it is doing: it tells the model what
-# comes back, when reaching for this tool is the right call rather than
-# get_deployment, and roughly what it costs. That framing is most of what makes
-# a tool usable by a model. The implementation underneath is the easy half.
+# Read the docstring first, and notice what it is doing: it says what comes
+# back, when reaching for this tool is the right call rather than get_nodes, and
+# roughly what it costs. That framing is most of what makes a tool usable by a
+# model. The implementation underneath is the easy half.
+#
+# The decorator is commented out too, deliberately. A tool that is registered
+# but returns "not implemented" is still advertised to the model, which will
+# call it, read the apology, and have spent an iteration and a few thousand
+# tokens learning nothing. An unregistered tool costs nothing.
 #
 # The ResourceQuota read is already permitted by the agent's Role, so this works
-# as soon as you uncomment it and restart the lab.
-
-
-@server.tool()
-def get_resource_quota(namespace: str) -> str:
-    """ResourceQuota limits and current usage for a namespace.
-
-    Returns each quota's hard limits alongside what is currently consumed —
-    CPU, memory, pod count, and any extended resources such as nvidia.com/gpu.
-
-    Use this when a workload will not schedule and the *nodes* look like they
-    have room. Node capacity and namespace quota are two independent ceilings:
-    a pod can be rejected because the namespace has exhausted its quota even
-    though the cluster has plenty of free CPU. get_nodes answers the first
-    question; this answers the second.
-
-    Cheap — one API call.
-    """
-    # --- uncomment from here -------------------------------------------------
-    # try:
-    #     quotas = core.list_namespaced_resource_quota(namespace)
-    # except Exception as e:
-    #     return _err(e)
-    # if not quotas.items:
-    #     return f"no ResourceQuota set in {namespace} — usage is bounded only by node capacity"
-    # return "\n".join(
-    #     f"{q.metadata.name}\n  hard: {dict(q.status.hard or {})}\n  used: {dict(q.status.used or {})}"
-    #     for q in quotas.items
-    # )
-    # --- to here -------------------------------------------------------------
-    return (
-        "get_resource_quota is not implemented yet. "
-        "Uncomment the body in mcp/k8s_mcp.py to enable it (Lab 2 exercise)."
-    )
+# as soon as you uncomment it and re-run the lab.
+#
+# @server.tool()
+# def get_resource_quota(namespace: str) -> str:
+#     """ResourceQuota limits and current usage for a namespace.
+#
+#     Returns each quota's hard limits alongside what is currently consumed —
+#     CPU, memory, pod count, and any extended resources such as nvidia.com/gpu.
+#
+#     Use this when a workload will not schedule and the *nodes* look like they
+#     have room. Node capacity and namespace quota are two independent ceilings:
+#     a pod can be rejected because the namespace has exhausted its quota even
+#     though the cluster has plenty of free CPU. get_nodes answers the first
+#     question; this answers the second.
+#
+#     Cheap — one API call.
+#     """
+#     if CONFIG_ERROR:
+#         return _no_cluster()
+#     try:
+#         quotas = core.list_namespaced_resource_quota(namespace)
+#     except Exception as e:
+#         return _err(e)
+#     if not quotas.items:
+#         return f"no ResourceQuota set in {namespace} — usage is bounded only by node capacity"
+#     return "\n".join(
+#         f"{q.metadata.name}\n  hard: {dict(q.status.hard or {})}\n  used: {dict(q.status.used or {})}"
+#         for q in quotas.items
+#     )
 
 
 if __name__ == "__main__":
