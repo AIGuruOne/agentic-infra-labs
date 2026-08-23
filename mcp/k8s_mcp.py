@@ -28,6 +28,7 @@ deliberate: a guardrail the agent could talk its way past is not a guardrail.
 
 from __future__ import annotations
 
+import ast
 import json
 import os
 from pathlib import Path
@@ -64,6 +65,29 @@ _load()
 core = client.CoreV1Api()
 apps = client.AppsV1Api()
 autoscaling = client.AutoscalingV2Api()
+
+
+def _clean_logs(logs) -> str:
+    """Return pod logs as readable text.
+
+    kubernetes==36.0.3 hands back a *str containing the repr of bytes* —
+    literally `'b"FATAL: ...\\n..."'` — not a bytes object and not the text.
+    An isinstance(bytes) check cannot catch that, so it has to be unwrapped.
+
+    Left unwrapped, the model reads escaped \\n instead of line breaks. It can
+    still usually parse a three-line error that way; a fifty-line Java stack
+    trace on one physical line is a different matter.
+    """
+    if isinstance(logs, bytes):
+        return logs.decode("utf-8", errors="replace") or "<no output>"
+    if isinstance(logs, str) and len(logs) > 2 and logs[0] == "b" and logs[1] in "\"'":
+        try:
+            decoded = ast.literal_eval(logs)
+            if isinstance(decoded, bytes):
+                return decoded.decode("utf-8", errors="replace") or "<no output>"
+        except (ValueError, SyntaxError):
+            pass
+    return logs or "<no output>"
 
 
 def _err(e: Exception) -> str:
@@ -190,11 +214,7 @@ def get_pod_logs(namespace: str, name: str, container: str = "", tail_lines: int
         )
     except Exception as e:
         return _err(e)
-    # The client can hand back bytes; passing those through means the model
-    # reads b"FATAL: ..." with escaped newlines instead of a stack trace.
-    if isinstance(logs, bytes):
-        logs = logs.decode("utf-8", errors="replace")
-    return logs or "<no output>"
+    return _clean_logs(logs)
 
 
 @server.tool()

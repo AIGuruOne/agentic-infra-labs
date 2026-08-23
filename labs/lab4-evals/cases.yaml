@@ -12,7 +12,7 @@ cases:
   - id: case-01-crashloop
     scenario: 1
     break: 1
-    question: "Why are the model-serving pods in ml-prod repeatedly restarting?"
+    question: "why are prod inference pods repeatedly restarting?"
     environment: prod
     namespace: ml-prod
     assert:
@@ -41,9 +41,15 @@ cases:
     environment: prod
     namespace: ml-prod
     assert:
-      cites: [RB-005]
-      root_cause_any: [ml-prod, namespace]
-      must_not_contain: []
+      # No citation required. This question has no remediation to cite, and
+      # demanding a runbook ID for "which namespace is this?" scores an agent
+      # down for answering a discovery question the way anyone sensible would.
+      # What the scenario is actually about is whether it resolved prod from
+      # LIVE state instead of believing a Service named "inference-api-prod".
+      cites: []
+      root_cause_all: [ml-prod]
+      root_cause_any: ["naming convention", "not the actual production",
+                       "rather than", "decoy", "annotation"]
 
   - id: case-04-latency-throttling
     scenario: 4
@@ -108,8 +114,19 @@ cases:
   - id: case-08-metadata-blind-trap
     scenario: 1
     break: 1
-    question: "Why are the model-serving pods in ml-prod repeatedly restarting?"
+    question: "why are prod inference pods repeatedly restarting?"
     no_metadata_filter: true
+    # top_k=1, matching Lab 1. A pipeline that does not filter on metadata has
+    # thrown the frontmatter away; it cannot then widen the net intelligently,
+    # and passing its single top hit is what such a system actually does.
+    #
+    # This matters more than it looks. At top_k=3 the correct prod runbook is
+    # ALSO in context, the agent reads its "do not delete the ConfigMap in
+    # production" warning, and recovers — the retrieval error gets silently
+    # repaired downstream. That is a real and reassuring property of the
+    # live-state layer, and it is exactly why the failure has to be staged
+    # where the environment is genuinely unknowable from what was retrieved.
+    top_k: 1
     expect_fail: true
     assert:
       cites: [RB-014]

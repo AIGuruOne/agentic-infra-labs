@@ -138,3 +138,22 @@ def test_no_agent_framework_in_labs_or_agent():
         for framework in banned:
             assert f"import {framework}" not in low and f"from {framework}" not in low, \
                 f"{path.name} imports {framework}"
+
+
+def test_pod_logs_are_unwrapped_not_a_bytes_repr():
+    """kubernetes==36.0.3 returns pod logs as a str containing the repr of
+    bytes. The agent reads whatever this returns, so if it is not unwrapped the
+    model gets escaped \\n instead of line breaks."""
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location("k8s_mcp", REPO / "mcp" / "k8s_mcp.py")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+
+    wrapped = 'b"FATAL: model config not found\\nFATAL: cannot start.\\n"'
+    cleaned = module._clean_logs(wrapped)
+    assert not cleaned.startswith('b"')
+    assert "\n" in cleaned
+    assert "\\n" not in cleaned
+    assert module._clean_logs("ordinary log line") == "ordinary log line"
+    assert module._clean_logs(b"raw bytes\n") == "raw bytes\n"

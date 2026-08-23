@@ -49,14 +49,19 @@ SCENARIOS = {
 
 
 def retrieve_context(question: str, *, environment=None, namespace=None,
-                     use_filter=True, top_k=2, quiet=False) -> str:
+                     use_filter=True, top_k=3, quiet=False) -> str:
     """Retrieve runbooks and format them as context for the agent.
 
-    Note top_k=2 here where Lab 1 used 1. The agent has live cluster state to
-    check a runbook against, so a second candidate is useful rather than
+    Note top_k=3 here where Lab 1 used 1. The agent has live cluster state to
+    check a runbook against, so extra candidates are useful rather than
     dangerous — it can rule one out with evidence instead of guessing. That is
     itself a result worth pointing at: the live-state layer makes the retrieval
-    layer safer.
+    layer safer, and it is why Lab 2 can afford a wider net than Lab 1.
+
+    It also matters for recall. BM25 ranks "Model latency has suddenly
+    increased" against the HPA runbook above the latency runbook, because the
+    question shares more words with the former. At top_k=2 the correct runbook
+    never reaches the agent at all.
     """
     corpus = load_corpus()
     hits = search(question, corpus, environment=environment, namespace=namespace,

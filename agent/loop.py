@@ -36,6 +36,13 @@ How to work:
 
 - Establish what is true from the LIVE CLUSTER before you conclude anything.
   The runbooks describe what usually happens; the cluster tells you what did.
+  Call at least one tool before answering, always. A runbook that looks like it
+  matches the question is not evidence that it matches THIS incident, and
+  answering from the runbook alone is the failure this whole system exists to
+  prevent.
+- When the question is about latency, error rates, or when something changed,
+  query Prometheus. Kubernetes tells you the current shape of things; only
+  Prometheus tells you what it looked like ten minutes ago.
 - Investigate before you answer. A first plausible cause is a hypothesis, not a
   diagnosis. Check it.
 - When a failure could have more than one cause, look for all of them. Scheduler

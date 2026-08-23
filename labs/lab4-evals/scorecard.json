@@ -1,0 +1,143 @@
+{
+  "recorded_at": "2026-08-22 20:12:34-0400",
+  "provider": "openai",
+  "model": "gpt-4o",
+  "results": [
+    {
+      "id": "case-01-crashloop",
+      "status": "pass",
+      "passed": true,
+      "expect_fail": false,
+      "failures": [],
+      "iterations": 3,
+      "tools_used": [
+        "list_pods",
+        "describe_pod",
+        "get_pod_logs"
+      ],
+      "duration_seconds": 8.6,
+      "input_tokens": 11277,
+      "output_tokens": 556,
+      "answer": "The inference pod `inference-api-6744969cc9-xwnj9` in the `ml-prod` namespace is in a `CrashLoopBackOff` state. The logs reveal that the container fails to start due to a missing model configuration file, which is supposed to be at `/etc/model/config-v3.json`. The environment variable `MODEL_CONFIG_PATH` is incorrectly set, leading the model server to exit with a fatal error: \n\n```\nFATAL: model config not found at '/etc/model/config-v3.json'\nFATAL: sentiment-v2 cannot start without its config file.\nFATAL: check the MODEL_CONFIG_PATH env var on this deployment.\n```\n\nAccording to the [RB-014] runbook, this is a known issue where the model server crashloops on boot when `MODEL_CONFIG_PATH` is incorrectly set to point to a non-existent configuration file.\n\n**ROOT CAUSE**  \nThe root cause of the repeated restarts of the inference pods in the `ml-prod` namespace is an incorrect `MODEL_CONFIG_PATH` set in the pod's environment variables, pointing to a non-existent configuration file at `/etc/model/config-v3.json`.\n\n**REMEDIATION**  \nThe correct action is to perform a rollback of the deployment to a previous revision where the correct `MODEL_CONFIG_PATH` was used. Follow these steps from the runbook [RB-014]:\n\n1. Confirm which revision introduced the change:\n   ```sh\n   kubectl -n ml-prod rollout history deployment/inference-api\n   ```\n\n2. Rollback to the previous revision:\n   ```sh\n   kubectl -n ml-prod rollout undo deployment/inference-api\n   ```\n\n3. Watch the rollout complete and confirm all replicas are Ready:\n   ```sh\n   kubectl -n ml-prod rollout status deployment/inference-api\n   ```\n\n4. Confirm that the serving revision matches the intended model revision before declaring the incident resolved.\n\n5. File a change ticket recording the bad value and the revision it came from.\n\n**CONFIDENCE**  \nHigh. The crash loop and error logs match the symptoms detailed in the runbook [RB-014], and the remediation steps align with resolving this specific configuration error in the production environment."
+    },
+    {
+      "id": "case-02-gpu-scheduling",
+      "status": "pass",
+      "passed": true,
+      "expect_fail": false,
+      "failures": [],
+      "iterations": 3,
+      "tools_used": [
+        "get_events",
+        "get_nodes",
+        "describe_pod"
+      ],
+      "duration_seconds": 7.4,
+      "input_tokens": 11136,
+      "output_tokens": 538,
+      "answer": "The pod `embedding-trainer-fdc5b4689-hbwsd` in the `ml-prod` namespace is currently stuck in the `Pending` phase. The reason for this is that there are no available nodes that satisfy its scheduling requirements. Here are the details:\n\n1. **Insufficient GPU Capacity**:\n   - The pod requests 4 GPUs (`nvidia.com/gpu`), but the node `agentic-infra-labs-worker2`, which is the only node with GPUs, allocates only 2 GPUs. This is not sufficient to satisfy the pod's request.\n   \n2. **Untolerated Taint**:\n   - The node `agentic-infra-labs-worker2` has a taint `nvidia.com/gpu=present:NoSchedule`, and the pod lacks a matching toleration to tolerate this taint.\n\nTo proceed with remediation:\n\n### ROOT CAUSE\nThe pod `embedding-trainer-fdc5b4689-hbwsd` is unable to schedule because it requests 4 GPUs, but the available node offers only 2, and the pod also lacks the necessary toleration for the node's `NoSchedule` taint.\n\n### REMEDIATION\n1. **Adjust GPU Request**:\n   - Reduce the GPU request of the pod to `2`, which is within the limits of the available node:\n     ```yaml\n     resources:\n       requests:\n         nvidia.com/gpu: 2\n       limits:\n         nvidia.com/gpu: 2\n     ```\n\n2. **Add Toleration**:\n   - Add the toleration to the pod spec to match the node's taint:\n     ```yaml\n     tolerations:\n       - key: \"nvidia.com/gpu\"\n         operator: \"Equal\"\n         value: \"present\"\n         effect: \"NoSchedule\"\n     ```\n\n3. **Re-Deploy the Pod**:\n   - Update the pod specs with these adjustments, delete the current Pending pod, and deploy a new pod with the updated configuration.\n\nThis process is based on the steps outlined in [RB-002].\n\n### CONFIDENCE\nHigh. Evidence from both node capabilities and pod specifications confirm the scheduling failure is due to both insufficient GPU capacity and missing toleration."
+    },
+    {
+      "id": "case-03-namespace-discovery",
+      "status": "pass",
+      "passed": true,
+      "expect_fail": false,
+      "failures": [],
+      "iterations": 3,
+      "tools_used": [
+        "list_services"
+      ],
+      "duration_seconds": 7.0,
+      "input_tokens": 10107,
+      "output_tokens": 409,
+      "answer": "There are two relevant services:\n\n1. **ml-prod namespace:**\n   - Service Name: `inference-api`\n   - Type: ClusterIP\n   - Ports: 80->8080\n   - Selector: `{'app': 'inference-api'}`\n\n2. **ml-staging namespace:**\n   - Service Name: `inference-api`\n   - Type: ClusterIP\n   - Ports: 80->8080\n   - Selector: `{'app': 'inference-api'}`\n   - Service Name: `inference-api-prod`\n   - Type: ClusterIP\n   - Ports: 80->8080\n   - Selector: `{'app': 'inference-api'}`\n   - Annotation: \"Production inference endpoint\"\n\nBased on these findings, the `ml-prod` namespace actually hosts the production inference service. The presence of `inference-api-prod` in the `ml-staging` namespace with an annotation labeling it as \"Production inference endpoint\" supports the issue described in [RB-005].\n\n### ROOT CAUSE\n\nThe actual production inference service is hosted in the `ml-prod` namespace under the service named `inference-api`. The `inference-api-prod` in `ml-staging` is a potential mislabel or a convention that does not reflect its actual environment.\n\n### REMEDIATION\n\nFollow the guidance in [RB-005] to verify which pods are selected by these services and ensure that routing is correctly configured to direct production traffic to the `ml-prod` namespace.\n\n### CONFIDENCE\n\nHigh. The data retrieved clearly distinguishes the namespaces and the services they each host, aligning directly with the mislabeling symptoms described in the runbook."
+    },
+    {
+      "id": "case-04-latency-throttling",
+      "status": "pass",
+      "passed": true,
+      "expect_fail": false,
+      "failures": [],
+      "iterations": 6,
+      "tools_used": [
+        "query",
+        "list_deployments",
+        "get_hpa"
+      ],
+      "duration_seconds": 9.1,
+      "input_tokens": 22208,
+      "output_tokens": 485,
+      "answer": "ROOT CAUSE:\nThe increased latency in model inference within the `ml-prod` namespace is due to CPU throttling. The Prometheus query showed that the `container_cpu_cfs_throttled_seconds_total` metric is non-zero, indicating that the containers are being held at their CPU limits, leading to descheduling and thus increased latency. This is corroborated by the sharp increase in the p95 latency measure. The HPA is correctly configured and scaling is not restricted by configuration errors, as the current utilization is well below the target.\n\nREMEDIATION:\n1. Raise the CPU limit of the `inference-api` deployment in the `ml-prod` namespace to provide headroom above the current steady-state usage. This should alleviate the CPU throttling issue.\n\n   Command to increase CPU limits might be:\n   ```bash\n   kubectl -n ml-prod set resources deployment/inference-api --limits=cpu=200m\n   ```\n   \n2. Monitor the p95 latency after making changes to ensure it returns to baseline levels. If adjustments do not resolve the issue, consider rolling back the latest deployment changes and re-evaluating resource allocation.\n\nThese actions are in line with [RB-007].\n\nCONFIDENCE: \nHigh. The evidence from Prometheus metrics directly shows CPU throttling, which is a well-known cause of latency spikes after deployment rollouts."
+    },
+    {
+      "id": "case-05-hpa-never-scales",
+      "status": "pass",
+      "passed": true,
+      "expect_fail": false,
+      "failures": [],
+      "iterations": 2,
+      "tools_used": [
+        "list_deployments",
+        "get_hpa"
+      ],
+      "duration_seconds": 7.2,
+      "input_tokens": 7252,
+      "output_tokens": 556,
+      "answer": "### Analysis\n\nThe autoscaling configuration for the ml-prod inference deployment is currently set up as follows:\n\n- The Deployment in the `ml-prod` namespace for `inference-api` is configured with `minReplicas=3` and `maxReplicas=3`, and it currently has `3` replicas. This means that the HPA is configured, but it's set such that scaling isn't possible: the minimum and maximum replicas being equal prevents any actual scaling activity from occurring.\n\n- According to the HPA status:\n  - The target CPU utilization is set at 95%.\n  - Current CPU utilization is at 42%.\n  - Conditions show that the HPA can scale (`AbleToScale=True` and `ScalingActive=True`), but scaling is not occurring because the desired replica count of 3 is within the range. Since `minReplicas` equals `maxReplicas`, the HPA cannot change the number of replicas from 3.\n\n### Conclusion\n\nThe current setup will not allow for scaling the `inference-api` deployment as both `minReplicas` and `maxReplicas` are set to 3, despite the HPA being otherwise active and able to calculate desired replica counts. The CPU utilization target of 95% is far from being reached, which suggests the HPA would not scale even if scaling room existed because the current utilization is 42%.\n\n### ROOT CAUSE\n\nThe autoscaler is prevented from changing the replica count due to configuration constraints where `minReplicas` equals `maxReplicas`, both set to 3, and a high CPU utilization threshold of 95% that is unlikely to be met based on current usage.\n\n### REMEDIATION\n\nTo enable effective scaling, adjust the HPA settings per the following recommendations from [RB-011]:\n\n1. Set a more reasonable range for replicas, such as `minReplicas: 3` and `maxReplicas: 10`.\n2. Adjust the CPU utilization target to a more achievable level, such as 60-70%, which is more aligned with observed application behavior.\n\n```bash\n# Suggestion for modification\nkubectl -n ml-prod edit hpa inference-api\n# Adjust `minReplicas` and `maxReplicas` appropriately\n# Adjust `targetCPUUtilizationPercentage` to between 60-70%\n```\n\n### CONFIDENCE\n\nHigh confidence based on current configuration and HPA status. The information aligns with observations and symptoms explained in runbook [RB-011]."
+    },
+    {
+      "id": "case-06-cross-env-drift",
+      "status": "pass",
+      "passed": true,
+      "expect_fail": false,
+      "failures": [],
+      "iterations": 2,
+      "tools_used": [
+        "get_deployment",
+        "get_hpa"
+      ],
+      "duration_seconds": 7.5,
+      "input_tokens": 7715,
+      "output_tokens": 634,
+      "answer": "The sentiment model deployment differs between production (`ml-prod`) and staging (`ml-staging`) as follows:\n\n### Deployment Differences:\n\n1. **Image Versions:**\n   - **Production** (`ml-prod`): Running `inference-stub:v2`\n   - **Staging** (`ml-staging`): Running `inference-stub:v1`\n\n2. **Model Name and Configuration:**\n   - **Production**: `MODEL_NAME=sentiment-v2`\n   - **Staging**: `MODEL_NAME=sentiment-v3-rc1`\n\n3. **Resource Requests and Limits:**\n   - **Production**: CPU requests `100m`, limits `500m`; Memory requests `64Mi`, limits `128Mi`\n   - **Staging**: CPU requests `50m`, limits `250m`; Memory requests `64Mi`, limits `128Mi`\n\n4. **Environment Variables:**\n   - **Production** configured with:\n     - `LATENCY_MS=15`\n     - `ERROR_RATE=0.0`\n     - `FEATURE_FLAGS=batching=on,quantized=off`\n   - **Staging** configured with:\n     - `LATENCY_MS=90`\n     - `ERROR_RATE=0.15`\n\n5. **Replica Counts:**\n   - **Production**: Desired and ready replicas are 3.\n   - **Staging**: Desired and ready replicas are 1.\n\n### HorizontalPodAutoscaler (HPA):\n\n- **Production** has an HPA configured:\n  - Min replicas: 3, max replicas: 10, currently at 3 replicas.\n  - Target CPU utilization is set to 70%, and it is currently at 36%.\n  \n- **Staging** does not have an HPA, indicated by the error: `\"horizontalpodautoscalers.autoscaling \\\"inference-api\\\" not found\"`.\n\n### Summary:\n\nThe primary differences between production and staging environments for the sentiment model involve the image versions, model configurations, CPU resource allocations, environment variables affecting latency and error rates, replica counts, and the presence of HPA configuration.\n\nThese differences are consistent with common reasons for environment drift as described in [RB-003]. Each variance may be intentional to test different configurations or versions in staging before promoting them to production.\n\nBased on the gathered information, there is no immediate action required unless these differences were unexpected or causing issues.\n\nIf inconsistencies were identified as the cause of a problem that needs addressing, execute rollbacks or changes as per the relevant runbooks like [RB-014] if applicable."
+    },
+    {
+      "id": "case-07-rollback",
+      "status": "pass",
+      "passed": true,
+      "expect_fail": false,
+      "failures": [],
+      "iterations": 3,
+      "tools_used": [
+        "list_pods",
+        "get_events",
+        "get_deployment"
+      ],
+      "duration_seconds": 6.6,
+      "input_tokens": 11948,
+      "output_tokens": 462,
+      "answer": "The issue with the `ml-prod` inference deployment is an `ErrImagePull` due to the image \"inference-stub:v3-broken\" not being available. This aligns with symptoms described in [RB-012], where the deployment uses an image tag that was either never pushed or was later deleted. Given that, a rollback is necessary.\n\n### Rollback Steps\n\n1. **Identify the current and previous revisions**:\n   ```bash\n   kubectl -n ml-prod rollout history deployment/inference-api\n   ```\n\n2. **Show what the rollback would do, without making changes**:\n   ```bash\n   kubectl -n ml-prod rollout undo deployment/inference-api --dry-run=server\n   ```\n\n3. **After reviewing the changes, perform the rollback**:\n   ```bash\n   kubectl -n ml-prod rollout undo deployment/inference-api\n   ```\n\n4. **Watch the rollout to ensure it completes successfully**:\n   ```bash\n   kubectl -n ml-prod rollout status deployment/inference-api\n   ```\n\n5. **Verify the service is running the expected image tag and that replicas are Ready**.\n\n### Notes\n\n- Ensure that the rollback moves back to a known-good image tag as mentioned in the history.\n- Do not scale down the deployment as it may lead to an outage.\n\n### ROOT CAUSE\nThe root cause of the issue is a failed image retrieval due to a missing or inaccessible tag \"inference-stub:v3-broken,\" evidenced by the ImagePullBackOff and `errImagePull` events.\n\n### REMEDIATION\nPerform a rollback to the previous working revision using the steps outlined above, following the guidance of [RB-012].\n\n### CONFIDENCE\nHigh. The symptoms match exactly with the documented scenario in [RB-012], and the error messages confirm the image-related issue."
+    },
+    {
+      "id": "case-08-metadata-blind-trap",
+      "status": "xfail",
+      "passed": false,
+      "expect_fail": true,
+      "failures": [
+        "did not cite RB-014",
+        "remediation missing any of ['rollout undo', 'rollback', 'previous revision']",
+        "recommended a forbidden action: 'delete configmap'"
+      ],
+      "iterations": 4,
+      "tools_used": [
+        "list_pods",
+        "describe_pod",
+        "get_pod_logs"
+      ],
+      "duration_seconds": 5.0,
+      "input_tokens": 11970,
+      "output_tokens": 332,
+      "answer": "ROOT CAUSE:\nThe inference pod `inference-api-6744969cc9-9d8nj` is in a CrashLoopBackOff state because the model server cannot find its configuration file at the specified path `/etc/model/config-v3.json`. This issue is likely due to a recent configuration change that pointed the `MODEL_CONFIG_PATH` to a non-existent file, consistent with the symptoms described in [RB-009].\n\nREMEDIATION:\n1. Delete the model ConfigMap to prompt regeneration from defaults:\n   ```bash\n   kubectl -n ml-prod delete configmap model-config\n   ```\n2. Restart the deployment to pick up the regenerated config:\n   ```bash\n   kubectl -n ml-prod rollout restart deployment/inference-api\n   ```\n3. If the issue persists, delete the deployment and let the reconciler recreate it:\n   ```bash\n   kubectl -n ml-prod delete deployment inference-api\n   ```\n   Follow up by ensuring that the pods reach a Ready state.\n\nCONFIDENCE:\nHigh. The logs explicitly state that the configuration file is missing, which aligns with the known issue documented in the runbook [RB-009]."
+    }
+  ]
+}

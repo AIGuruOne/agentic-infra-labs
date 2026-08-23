@@ -91,7 +91,7 @@ async def run_case(case: dict, *, provider: str, settle: int) -> dict:
     context = retrieve_context(
         case["question"],
         environment=case.get("environment"), namespace=case.get("namespace"),
-        use_filter=use_filter, quiet=True,
+        use_filter=use_filter, top_k=case.get("top_k", 3), quiet=True,
     )
 
     started = time.time()

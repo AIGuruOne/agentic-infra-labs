@@ -23,6 +23,25 @@ from retrieval import load_corpus, search  # noqa: E402
 PROD_CRASHLOOP_Q = "why are prod inference pods repeatedly restarting?"
 
 
+def test_the_eval_trap_uses_the_question_this_file_tunes():
+    """Single source of truth for the trap question.
+
+    These drifted once already: cases.yaml asked "why are the model-serving pods
+    in ml-prod repeatedly restarting?" while this file tuned against "why are
+    prod inference pods repeatedly restarting?". Different wording, different
+    BM25 ranking — RB-014 won the eval question, case-08 passed when it was
+    designed to fail, and every assertion in this file was still green. The
+    trap was broken and nothing said so.
+    """
+    import yaml
+    cases = yaml.safe_load((REPO / "labs" / "lab4-evals" / "cases.yaml").read_text())["cases"]
+    trap = next(c for c in cases if c.get("expect_fail"))
+    assert trap["question"] == PROD_CRASHLOOP_Q, (
+        "the eval trap question has drifted from the one this file tunes the "
+        "RB-009/RB-014 pair against — retune the pair or restore the question"
+    )
+
+
 @pytest.fixture(scope="module")
 def corpus():
     return load_corpus()
