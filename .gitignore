@@ -22,8 +22,10 @@ cluster/rbac/agent.kubeconfig
 # macOS
 .DS_Store
 
-# Internal build brief and the marketing syllabus — these are working documents
-# for the session, not part of what ships to attendees. Kept out of the repo
-# rather than deleted.
+# Belt and braces. These internal documents live one directory up, outside this
+# repository, so they cannot be committed by accident. The rules stay anyway, so
+# that dropping a copy in here to refer to while working does not publish it.
 build-spec.md
-Packt_Syllabus_Agentic_AI_Infra_Aug2026.pdf
+*Syllabus*.pdf
+NOTES.md
+session-day/
