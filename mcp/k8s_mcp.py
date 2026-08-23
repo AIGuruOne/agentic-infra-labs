@@ -103,6 +103,43 @@ def _err(e: Exception) -> str:
     return f"ERROR: {e}"
 
 
+# Namespaces the agent is scoped to. Used only as the fallback when a
+# cluster-wide list is refused.
+SCOPED_NAMESPACES = ("ml-prod", "ml-staging")
+
+
+def _services_everywhere_visible():
+    """List Services across every namespace the caller can actually reach.
+
+    A cluster-wide list is the natural implementation and it is forbidden for
+    the agent's ServiceAccount, whose Role is namespaced to ml-prod and
+    ml-staging by design. Widening the Role to fix this would trade the entire
+    blast-radius story for one convenience.
+
+    So: try cluster-wide, because the repo also supports running these tools
+    with your own broader credentials, and fall back to the scoped namespaces on
+    403. The return carries a note saying which path was taken — an agent that
+    is silently seeing less than it asked for will conclude "there is no such
+    service elsewhere" when the truth is "I was not allowed to look".
+    """
+    try:
+        return core.list_service_for_all_namespaces().items, ""
+    except client.ApiException as e:
+        if e.status != 403:
+            return _err(e), ""
+
+    items = []
+    for ns in SCOPED_NAMESPACES:
+        try:
+            items.extend(core.list_namespaced_service(ns).items)
+        except Exception:
+            continue
+    note = ("searched only " + ", ".join(SCOPED_NAMESPACES) +
+            " — this ServiceAccount is not permitted to list Services "
+            "cluster-wide, so other namespaces were not examined")
+    return items, note
+
+
 @server.tool()
 def list_pods(namespace: str, label_selector: str = "") -> str:
     """List pods in a namespace with their phase, readiness, and restart count.
@@ -311,26 +348,31 @@ def get_deployment(namespace: str, name: str) -> str:
 
 @server.tool()
 def list_services(namespace: str = "") -> str:
-    """List Services, in one namespace or across all namespaces if omitted.
+    """List Services, in one namespace or across every namespace you can see.
 
     Returns namespace, name, type, cluster IP, ports, selector, and any
     `description` annotation.
 
-    Use the all-namespaces form when you need to find where a service actually
-    lives. Be careful with the results: a Service's *name* and its annotations
-    are written by humans and are not authoritative. A Service called
+    Omit the namespace when you need to find where a service actually lives.
+    Be careful with the results: a Service's *name* and its annotations are
+    written by humans and are not authoritative. A Service called
     "inference-api-prod" living in ml-staging is a naming convention, not a
     fact. Follow the selector to real pods before concluding anything.
 
     Cheap.
     """
-    try:
-        svcs = (core.list_service_for_all_namespaces() if not namespace
-                else core.list_namespaced_service(namespace))
-    except Exception as e:
-        return _err(e)
+    if namespace:
+        try:
+            items = core.list_namespaced_service(namespace).items
+        except Exception as e:
+            return _err(e)
+    else:
+        items, scope_note = _services_everywhere_visible()
+        if isinstance(items, str):
+            return items
+
     lines = []
-    for s in svcs.items:
+    for s in items:
         if s.metadata.namespace in ("kube-system", "kube-public", "kube-node-lease", "local-path-storage"):
             continue
         ports = ",".join(f"{p.port}->{p.target_port}" for p in (s.spec.ports or []))
@@ -339,7 +381,10 @@ def list_services(namespace: str = "") -> str:
             f"{s.metadata.namespace}/{s.metadata.name}  type={s.spec.type}  ports={ports}  "
             f"selector={s.spec.selector}" + (f'  annotation="{desc}"' if desc else "")
         )
-    return "\n".join(lines) or "no services found"
+    out = "\n".join(lines) or "no services found"
+    if not namespace and scope_note:
+        out += f"\n\n({scope_note})"
+    return out
 
 
 @server.tool()

@@ -157,3 +157,78 @@ def test_pod_logs_are_unwrapped_not_a_bytes_repr():
     assert "\\n" not in cleaned
     assert module._clean_logs("ordinary log line") == "ordinary log line"
     assert module._clean_logs(b"raw bytes\n") == "raw bytes\n"
+
+
+def test_mcp_servers_receive_the_env_vars_they_read():
+    """The MCP SDK does not pass the parent environment to a stdio server — its
+    default allow-list is HOME/LOGNAME/PATH/SHELL/TERM/USER and everything else
+    is dropped silently.
+
+    Both of our documented escape hatches are environment variables, so without
+    explicit forwarding, setting them did nothing and reported nothing:
+    PROMETHEUS_URL (how CI reaches Prometheus without a port-forward) and
+    AGENT_KUBECONFIG (how you point the tools at your own cluster).
+    """
+    import os
+    import sys
+
+    sys.path.insert(0, str(REPO))
+    from agent.tools import FORWARDED_ENV, server_environment
+
+    previous = {k: os.environ.get(k) for k in FORWARDED_ENV}
+    try:
+        for key in FORWARDED_ENV:
+            os.environ[key] = f"sentinel-{key}"
+        env = server_environment()
+        for key in FORWARDED_ENV:
+            assert env.get(key) == f"sentinel-{key}", f"{key} is not forwarded to MCP servers"
+        assert "PATH" in env, "the SDK's own safe defaults were dropped"
+    finally:
+        for key, value in previous.items():
+            if value is None:
+                os.environ.pop(key, None)
+            else:
+                os.environ[key] = value
+
+
+def test_unset_env_vars_are_not_forwarded_as_empty():
+    """Forwarding an unset variable as "" would override the server's own
+    default with an empty path, which fails in a far more confusing way than
+    not setting it at all."""
+    import os
+    import sys
+
+    sys.path.insert(0, str(REPO))
+    from agent.tools import server_environment
+
+    previous = os.environ.pop("PROMETHEUS_URL", None)
+    try:
+        assert "PROMETHEUS_URL" not in server_environment()
+    finally:
+        if previous is not None:
+            os.environ["PROMETHEUS_URL"] = previous
+
+
+def test_list_services_does_not_require_cluster_wide_permission():
+    """The agent's Role is namespaced to ml-prod and ml-staging by design, so a
+    cluster-wide Service list is forbidden. The tool must degrade to the
+    namespaces it can see AND say that it did — an agent silently seeing less
+    than it asked for concludes "no such service exists elsewhere" when the
+    truth is "I was not allowed to look"."""
+    source = (REPO / "mcp" / "k8s_mcp.py").read_text()
+    assert "SCOPED_NAMESPACES" in source
+    assert "_services_everywhere_visible" in source
+    assert "not permitted to list Services" in source, \
+        "the fallback must report reduced scope, not hide it"
+
+
+def test_agent_role_grants_no_cluster_wide_service_read():
+    """Guard the blast radius: if someone 'fixes' the tool above by widening
+    RBAC instead, this fails. The only cluster-scoped grant is nodes, which
+    scenario 02 genuinely needs."""
+    import yaml
+
+    docs = [d for d in yaml.safe_load_all((REPO / "cluster" / "rbac" / "agent-sa.yaml").read_text()) if d]
+    cluster_roles = [d for d in docs if d.get("kind") == "ClusterRole"]
+    granted = {r for cr in cluster_roles for rule in cr.get("rules", []) for r in rule.get("resources", [])}
+    assert granted == {"nodes"}, f"cluster-scoped grants widened to {granted}"

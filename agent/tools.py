@@ -17,13 +17,34 @@ Desktop at mcp/k8s_mcp.py and it works there too.
 from __future__ import annotations
 
 import sys
+import os
 from contextlib import AsyncExitStack
 from pathlib import Path
 
 from mcp import Client
-from mcp.client.stdio import StdioServerParameters, stdio_client
+from mcp.client.stdio import StdioServerParameters, get_default_environment, stdio_client
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
+
+# Environment variables the MCP servers actually read, which must be forwarded
+# explicitly.
+#
+# The MCP SDK does NOT pass the parent environment to a stdio server. Its
+# get_default_environment() allows only a small safe list — HOME, LOGNAME, PATH,
+# SHELL, TERM, USER — and drops everything else. That is a sensible default for
+# running untrusted third-party servers, and it silently broke both of our
+# documented escape hatches: PROMETHEUS_URL (how CI reaches Prometheus without a
+# port-forward) and AGENT_KUBECONFIG (how you point the tools at your own
+# cluster). Setting either did nothing, with no error.
+FORWARDED_ENV = ("AGENT_KUBECONFIG", "KUBECONFIG", "PROMETHEUS_URL")
+
+
+def server_environment() -> dict:
+    """The SDK's safe defaults, plus the variables our own servers read."""
+    env = dict(get_default_environment())
+    env.update({k: v for k in FORWARDED_ENV if (v := os.environ.get(k))})
+    return env
+
 
 SERVERS = {
     "k8s": REPO_ROOT / "mcp" / "k8s_mcp.py",
@@ -61,7 +82,11 @@ class ToolRegistry:
             # inherited. Note Client() treats a bare string as an HTTP URL; a
             # stdio server has to be handed a transport.
             transport = stdio_client(
-                StdioServerParameters(command=sys.executable, args=[str(script)])
+                StdioServerParameters(
+                    command=sys.executable,
+                    args=[str(script)],
+                    env=server_environment(),
+                )
             )
             client = Client(transport)
             session = await self._stack.enter_async_context(client)
