@@ -28,17 +28,22 @@ scorecard is committed for exactly this reason.
 ```
   case                             status           iters    sec  tools
   -------------------------------- ---------------- -----  -----  -----
-  case-01-crashloop                pass                 3      9  3 distinct
-  case-02-gpu-scheduling           pass                 3      7  3 distinct
-  case-03-namespace-discovery      pass                 3      7  1 distinct
-  case-04-latency-throttling       pass                 6      9  3 distinct
-  case-05-hpa-never-scales         pass                 2      7  2 distinct
-  case-06-cross-env-drift          pass                 2      8  2 distinct
-  case-07-rollback                 pass                 3      7  3 distinct
-  case-08-metadata-blind-trap      xfail                4      5  3 distinct
+  case-01-crashloop                pass                 5     44  7 distinct
+  case-02-gpu-scheduling           pass                 3     29  5 distinct
+  case-03-namespace-discovery      pass                 5     39  5 distinct
+  case-04-latency-throttling       pass                 6     89  9 distinct
+  case-05-hpa-never-scales         pass                 3     38  5 distinct
+  case-06-cross-env-drift          pass                 7     58  8 distinct
+  case-07-rollback                 pass                 6     65  7 distinct
+  case-08-metadata-blind-trap      xfail                5     49  7 distinct
 
   7/7 real cases passed, 1 expected failure(s) behaved as designed
 ```
+
+Recorded on `claude-opus-5`. Note the tool counts: five to nine distinct tools
+per case. The same suite on a weaker model passes seven of seven too, but with
+one to three tools per case and in a fifth of the wall-clock. Both pass. Only
+one of them actually looked.
 
 Each case injects a `break-N`, asks a question, scores the answer against
 assertions, resets, and moves on. The assertions are coarse on purpose — a
@@ -60,8 +65,10 @@ Case 8 is identical to case 1 in every respect but one: the retrieval pipeline
 is metadata-blind. Same question. Same cluster. Same assertions. Same agent,
 with the same live tools.
 
-It investigated properly — `list_pods`, `describe_pod`, `get_pod_logs` — and
-found the real error in the container logs. Then:
+And it is not a weak-model artifact. On `claude-opus-5` this case used **seven
+distinct tools across five iterations** — pods, events, logs, describe, the
+deployment spec, and two Prometheus queries. It investigated more thoroughly
+than several of the cases that passed. Then:
 
 ```
 ROOT CAUSE:

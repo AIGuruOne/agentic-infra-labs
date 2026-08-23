@@ -127,16 +127,40 @@ The demo has to be true about its own mechanism.
 
 Default `claude-opus-5` at `effort: medium`, both settable in `.env`.
 
-A single scenario is 3–5 agent iterations. Measured on the OpenAI fallback path
-(gpt-4o), a scenario costs roughly 10k–15k input tokens and 200–1,000 output
-tokens in total across those iterations, dominated by tool results rather than
-by reasoning.
+**Measured**, from the committed eval scorecard — a real eight-case sweep on
+`claude-opus-5`, not an estimate:
 
-At `claude-opus-5` list pricing ($5/MTok in, $25/MTok out) that is on the order
-of **$0.05–0.10 per scenario**, so a full four-lab pass is well under a dollar.
-`claude-sonnet-5` is meaningfully cheaper and handles every scenario except
-arguably scenario 02, which rewards a stronger model because it requires finding
-two causes rather than stopping at the first.
+| | per scenario (mean) | full 8-case sweep |
+|---|---|---|
+| input tokens | 43,375 | 347,004 |
+| output tokens | 3,539 | 28,312 |
+| cost at list price | **$0.30** | **$2.44** |
+| agent wall-clock | 51 s | 411 s |
 
-The full eight-case eval sweep is the only expensive operation here, which is
-why `make lab4 ARGS='--replay'` exists and why the sweep is never run live.
+Range across the eight cases: $0.16 (scenario 02, three iterations) to $0.51
+(scenario 04, six iterations and nine distinct tools). Cost is dominated by
+input tokens — tool results resent on every iteration — not by reasoning.
+
+A full four-lab pass is roughly **$1.00–1.50**: Lab 1 is a few cents, Lab 2 is
+two scenarios, Lab 3 is one, and Lab 4 replays a committed scorecard for free.
+Attendees who then explore on their own should budget a few dollars, not a few
+cents.
+
+**On model choice.** These numbers are the reason `AGENT_MODEL` is in `.env`.
+`claude-sonnet-5` is materially cheaper and handles most scenarios. Scenario 02
+is the one that rewards the stronger model: it requires finding *two*
+independent causes, and stopping at the first is precisely the confidently-
+incomplete failure the session is about.
+
+**On effort.** `medium` is the lab default. Raising it increases both depth and
+cost; the measured figures above are all at `medium`.
+
+**A note on the earlier estimate.** An earlier draft of this file estimated
+$0.05–0.10 per scenario by extrapolating from a gpt-4o run. That was wrong by
+3–6x, because the stronger model investigates far more thoroughly — 5 to 9
+distinct tools per case against gpt-4o's 1 to 3. Thoroughness is what you are
+paying for and it is worth having; the estimate was simply measuring a
+different behaviour. Cost figures here now come from an actual sweep.
+
+The full sweep is the only expensive operation in the repo, which is why
+`make lab4 ARGS='--replay'` exists and why the sweep is never run live.

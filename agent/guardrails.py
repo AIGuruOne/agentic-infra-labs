@@ -238,6 +238,12 @@ class Guardrails:
             target = revisions[-2][1] if len(revisions) >= 2 else "<unknown>"
             description = (f"Roll {ns}/{dep} back one revision, replacing the current "
                            f"image with the previous one. Pods will be recreated.")
+            # Show only the tail of the history. The operator is deciding about
+            # one rollback, and a wall of revision numbers is the fastest way to
+            # train someone to stop reading approval prompts.
+            history_lines = history.splitlines()
+            if len(history_lines) > 6:
+                history = "\n".join(history_lines[:2] + ["  ..."] + history_lines[-4:])
             diff = (f"  deployment {ns}/{dep}\n"
                     f"- image: {current}\n"
                     f"+ image: {target}\n\n{history}")

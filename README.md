@@ -162,9 +162,10 @@ No agent framework anywhere in `/labs` — what you learn here survives the next
 framework churn cycle, because there is nothing to churn.
 
 `AGENT_MODEL` and `AGENT_EFFORT` in `.env` control cost and depth. The default
-is `claude-opus-5` at `medium` effort; `claude-sonnet-5` is meaningfully cheaper
-and handles most scenarios. Measured per-scenario cost is in
-[VERSIONS.md](VERSIONS.md).
+is `claude-opus-5` at `medium` effort, which costs about **$0.30 per scenario**
+and roughly **$1.00–1.50 for a full pass through all four labs** — measured, not
+estimated, from the committed eval scorecard. `claude-sonnet-5` is materially
+cheaper and handles most scenarios. Full breakdown in [VERSIONS.md](VERSIONS.md).
 
 The OpenAI path is a real, tested fallback rather than an aspiration — run any
 lab with `--provider openai`. It is not what the session teaches.

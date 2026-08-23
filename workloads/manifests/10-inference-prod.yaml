@@ -13,6 +13,10 @@ metadata:
     app: inference-api
     model: sentiment-v2
 spec:
+  # Keep rollout history short. On a cluster that has run the labs a dozen
+  # times the approval gate's diff box otherwise fills with revision numbers
+  # nobody is reading.
+  revisionHistoryLimit: 5
   replicas: 3
   selector:
     matchLabels:
