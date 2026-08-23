@@ -29,13 +29,13 @@ scorecard is committed for exactly this reason.
   case                             status           iters    sec  tools
   -------------------------------- ---------------- -----  -----  -----
   case-01-crashloop                pass                 5     44  7 distinct
-  case-02-gpu-scheduling           pass                 3     29  5 distinct
-  case-03-namespace-discovery      pass                 5     39  5 distinct
-  case-04-latency-throttling       pass                 6     89  9 distinct
-  case-05-hpa-never-scales         pass                 3     38  5 distinct
-  case-06-cross-env-drift          pass                 7     58  8 distinct
-  case-07-rollback                 pass                 6     65  7 distinct
-  case-08-metadata-blind-trap      xfail                5     49  7 distinct
+  case-02-gpu-scheduling           pass                 4     38  5 distinct
+  case-03-namespace-discovery      pass                 5     47  7 distinct
+  case-04-latency-throttling       pass                 7     97  8 distinct
+  case-05-hpa-never-scales         pass                 3     36  5 distinct
+  case-06-cross-env-drift          pass                 7     85 10 distinct
+  case-07-rollback                 pass                 4     54  8 distinct
+  case-08-metadata-blind-trap      xfail                5     59  8 distinct
 
   7/7 real cases passed, 1 expected failure(s) behaved as designed
 ```

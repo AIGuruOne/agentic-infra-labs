@@ -140,13 +140,13 @@ Default `claude-opus-5` at `effort: medium`, both settable in `.env`.
 
 | | per scenario (mean) | full 8-case sweep |
 |---|---|---|
-| input tokens | 43,375 | 347,004 |
-| output tokens | 3,539 | 28,312 |
-| cost at list price | **$0.30** | **$2.44** |
-| agent wall-clock | 51 s | 411 s |
+| input tokens | 40,671 | 325,369 |
+| output tokens | 3,117 | 24,942 |
+| cost at list price | **$0.28** | **$2.25** |
+| agent wall-clock | 58 s | 461 s |
 
-Range across the eight cases: $0.16 (scenario 02, three iterations) to $0.51
-(scenario 04, six iterations and nine distinct tools). Cost is dominated by
+Range across the eight cases: $0.17 (scenario 05, three iterations) to $0.45
+(scenario 04, seven iterations and eight distinct tools). Cost is dominated by
 input tokens — tool results resent on every iteration — not by reasoning.
 
 A full four-lab pass is roughly **$1.00–1.50**: Lab 1 is a few cents, Lab 2 is
