@@ -8,9 +8,9 @@
 # to become visible, clears the screen, and then STOPS. You start your recorder,
 # press Enter, and the only thing on the clip is the command and its output.
 #
-# The waiting is the part worth automating. break-4 is invisible for 60 seconds
-# — record it too early and the agent correctly reports that nothing is wrong,
-# which looks exactly like your demo failing.
+# The break scripts now block until their own fault is observable, so a take is
+# never recorded against a cluster that has not caught up yet. break-4 is the
+# slow one — it waits for Prometheus' rate window to move, typically 25-90s.
 
 set -uo pipefail
 cd "$(dirname "$0")/.."
@@ -50,12 +50,10 @@ case "$TARGET" in
     ;;
   4)
     prep
-    printf "${DIM}injecting break-4…${RESET}\n"
+    # break-4.sh now blocks until the p95 step is actually in Prometheus, so
+    # there is nothing to hardcode here. It typically takes 25-90s.
+    printf "${DIM}injecting break-4 (it waits for the p95 to move)…${RESET}\n"
     ./faults/break-4.sh >/dev/null
-    printf "${YELLOW}waiting 90s — break-4 is INVISIBLE before 60s.${RESET}\n"
-    printf "${DIM}p95 is still 24ms at T+30s. Do not shorten this.${RESET}\n"
-    for i in $(seq 90 -5 5); do printf "\r  %ds " "$i"; sleep 5; done
-    printf "\r        \r"
     ready "make lab2 ARGS='--scenario 4'" "scenario 04 — latency + throttling"
     make lab2 ARGS="--scenario 4"
     ;;

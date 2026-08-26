@@ -853,3 +853,50 @@ def test_lab_instructions_are_discoverable():
         assert f"LAB.md" in makefile, "make labN does not print the instructions path"
     assert "LAB.md" in readme, "README does not mention LAB.md"
     assert "what to do" in readme.lower()
+
+
+def test_break_targets_are_not_phony():
+    """GNU make skips implicit-rule search for .PHONY targets, so listing
+    break-1..7 there stops the `break-%` pattern rule from ever matching.
+    `make break-1` then prints "Nothing to be done" and exits 0.
+
+    That shipped. Every wrapper exited 0 while injecting nothing, and the agent
+    was asked to investigate a healthy cluster.
+    """
+    makefile = (REPO / "Makefile").read_text()
+    phony = re.search(r"^\.PHONY:(.*?)(?=\n\n|\n[^\s\\])", makefile, re.M | re.S)
+    assert phony, "no .PHONY line found"
+    listed = phony.group(1).replace("\\", " ").split()
+    for n in range(1, 8):
+        assert f"break-{n}" not in listed, \
+            f"break-{n} is in .PHONY, which disables the break-% pattern rule"
+    assert re.search(r"^break-%:", makefile, re.M), "the break-% pattern rule is gone"
+
+
+def test_make_break_actually_invokes_the_script():
+    """Belt and braces: ask make what it would do, without a cluster."""
+    import subprocess
+
+    proc = subprocess.run(["make", "-n", "break-1"], cwd=REPO,
+                          capture_output=True, text=True, timeout=60)
+    assert proc.returncode == 0, proc.stderr
+    assert "faults/break-1.sh" in proc.stdout, \
+        f"make break-1 would run: {proc.stdout.strip()!r}"
+
+
+def test_break_scripts_wait_for_their_own_symptom():
+    """`make break-N && make lab2` must not be a race. A break script that
+    returns before its fault is observable produces an agent run that correctly
+    reports nothing is wrong — indistinguishable, live, from a broken demo."""
+    lib = (REPO / "faults" / "lib.sh").read_text()
+    assert "wait_for()" in lib, "faults/lib.sh has no wait_for helper"
+
+    # The faults with a delay between injection and observability must use it.
+    for n in (1, 2, 4, 6, 7):
+        script = (REPO / "faults" / f"break-{n}.sh").read_text()
+        assert "wait_for " in script, f"break-{n}.sh does not wait for its symptom"
+
+    # break-4 is the slow one: the metric window has to move, ~60s.
+    four = (REPO / "faults" / "break-4.sh").read_text()
+    timeout = int(re.search(r"wait_for (\d+)", four).group(1))
+    assert timeout >= 120, f"break-4 allows only {timeout}s; the p95 step needs ~60s"

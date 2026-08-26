@@ -12,6 +12,9 @@ K -n ml-staging set env deployment/inference-api \
 K -n ml-prod set env deployment/inference-api \
   FEATURE_FLAGS=batching=on,quantized=off >/dev/null
 
+wait_for 90 "the staging rollout" \
+  'K -n ml-staging get deploy inference-api -o jsonpath="{.spec.template.spec.containers[0].env[?(@.name==\"MODEL_NAME\")].value}" | grep -q v3-rc1'
+
 announce \
   "ml-staging moved to sentiment-v3-rc1 with a 15% error rate; ml-prod gained a FEATURE_FLAGS env var" \
   "How is this model deployed across environments, and where do prod and staging differ?"

@@ -37,6 +37,9 @@ spec:
               nvidia.com/gpu: 4
 YAML
 
+wait_for 60 "the scheduler to reject the pod" \
+  'K -n ml-prod get events --field-selector reason=FailedScheduling --no-headers 2>/dev/null | grep -q .'
+
 announce \
   "ml-prod/embedding-trainer requests 4 GPUs, has no toleration for the GPU node taint" \
   "How do I troubleshoot the GPU scheduling failure in ml-prod?"

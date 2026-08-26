@@ -11,6 +11,9 @@
 K -n ml-prod set image deployment/inference-api \
   inference-api=inference-stub:v3-broken >/dev/null
 
+wait_for 60 "the image pull to fail" \
+  'K -n ml-prod get pods -l app=inference-api --no-headers | grep -qE "ImagePullBackOff|ErrImagePull"'
+
 announce \
   "ml-prod/inference-api rolled onto image tag v3-broken, which does not exist" \
   "The inference deployment is failing. What are the rollback steps?"

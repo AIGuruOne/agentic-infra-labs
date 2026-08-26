@@ -17,7 +17,7 @@ make break-1
 make lab2 ARGS='--scenario 1'
 ```
 
-**You should see** the agent make 4–7 tool calls and conclude that
+**You should see** the agent make roughly 7–10 tool calls and conclude that
 `MODEL_CONFIG_PATH` points at a file that isn't in the image, citing `RB-014`
 and proposing `rollout undo`.
 
@@ -29,6 +29,11 @@ This is the whole point of the task. Three things to notice:
    investigating, before spending tokens on anything expensive.
 2. It called `describe_pod` on **one** pod, not four.
 3. It called `get_pod_logs` with **`previous=True`**.
+
+> Your run may differ — the model is non-deterministic, and it sometimes reaches
+> the same conclusion from `describe_pod`'s last-terminated reason without
+> reading logs at all. The **conclusion** should match; the exact tool sequence
+> won't always.
 
 Nothing in the prompt mentions crashloops. Find out why it knew:
 
@@ -61,10 +66,14 @@ Now read what the scheduler actually said:
 
 ```bash
 kubectl -n ml-prod get events --field-selector reason=FailedScheduling \
-  -o jsonpath='{.items[-1].message}' ; echo
+  -o custom-columns=WHY:.message --no-headers
 ```
 
 Both reasons, in one message. The agent had to read past the first clause.
+
+> Get `No resources found`? The event is gone — `make reset` clears events, and
+> the scheduler only writes one while a pod is actually Pending. Re-run
+> `make break-2`, wait about ten seconds, and try again.
 
 ---
 

@@ -18,8 +18,17 @@ PY      := .venv/bin/python
 KUBECTL := kubectl --context kind-$(CLUSTER)
 
 .PHONY: help doctor setup tour cluster verify reset clean load-stop test record \
-        break-1 break-2 break-3 break-4 break-5 break-6 break-7 \
         lab1 lab2 lab3 lab4
+
+# NOTE: break-1..break-7 are deliberately NOT in .PHONY.
+#
+# GNU make skips implicit-rule search for any target listed in .PHONY, so
+# naming them there stops the `break-%` pattern rule below from ever matching.
+# `make break-1` then prints "Nothing to be done" and exits 0 — a silent no-op.
+#
+# That shipped. The agent was asked to investigate a cluster where nothing had
+# been injected, correctly reported that nothing was wrong, and every wrapper
+# around it exited 0.
 
 help:
 	@sed -n '2,14p' Makefile | sed 's/^# \?//'

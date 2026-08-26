@@ -10,6 +10,9 @@
 K -n ml-prod set env deployment/inference-api \
   MODEL_CONFIG_PATH=/etc/model/config-v3.json >/dev/null
 
+wait_for 60 "pods to start crashlooping" \
+  'K -n ml-prod get pods -l app=inference-api --no-headers | grep -qE "CrashLoopBackOff|Error"'
+
 announce \
   "ml-prod/inference-api MODEL_CONFIG_PATH now points at a file that isn't in the image" \
   "Why are my model-serving pods in ml-prod repeatedly restarting?"
