@@ -31,9 +31,10 @@ jobs:
 
       - name: Install kind
         run: |
-          curl -sSLo /usr/local/bin/kind \
+          curl -sSLo /tmp/kind \
             https://kind.sigs.k8s.io/dl/v0.32.0/kind-linux-amd64
-          chmod +x /usr/local/bin/kind
+          chmod +x /tmp/kind
+          sudo mv /tmp/kind /usr/local/bin/kind
 
       - run: ./scripts/cluster.sh
 
@@ -112,9 +113,10 @@ jobs:
       - name: Install kind
         if: steps.gate.outputs.run == 'true'
         run: |
-          curl -sSLo /usr/local/bin/kind \
+          curl -sSLo /tmp/kind \
             https://kind.sigs.k8s.io/dl/v0.32.0/kind-linux-amd64
-          chmod +x /usr/local/bin/kind
+          chmod +x /tmp/kind
+          sudo mv /tmp/kind /usr/local/bin/kind
 
       - name: Cluster + scenario 01 end to end
         if: steps.gate.outputs.run == 'true'
