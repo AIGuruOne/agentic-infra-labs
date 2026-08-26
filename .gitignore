@@ -29,3 +29,7 @@ build-spec.md
 *Syllabus*.pdf
 NOTES.md
 session-day/
+
+# the reference port's isolated venv — it deliberately resolves different
+# versions from /labs and must never be installed alongside it
+alt/langgraph/.venv/

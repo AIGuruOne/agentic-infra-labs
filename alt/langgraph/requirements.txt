@@ -1,0 +1,8 @@
+anthropic==0.125.0
+kubernetes==36.0.3
+langchain-anthropic==1.6.1
+langchain-core==1.6.0
+langgraph==1.2.11
+mcp==2.1.1
+PyYAML==6.0.3
+rank-bm25==0.2.2

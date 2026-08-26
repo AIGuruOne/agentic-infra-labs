@@ -391,3 +391,52 @@ def test_glossary_promises_no_flag_that_does_not_exist():
 
     for flag in flags:
         assert flag in helps, f"GLOSSARY.md mentions {flag}, which no lab accepts"
+
+
+def test_alt_is_isolated_from_the_canonical_path():
+    """Constraint from the build spec: /labs is canonical and CI-tested; /alt is
+    a frozen reference. Nothing in the supported path may depend on the port,
+    and the port's dependencies must never leak into the main requirements —
+    langchain-anthropic pins anthropic 0.x, which would silently downgrade the
+    canonical path.
+    """
+    alt = REPO / "alt" / "langgraph"
+    assert (alt / "README.md").exists(), "the port must ship its disclaimer"
+    assert (alt / "requirements.txt").exists(), "the port must pin what it was verified against"
+
+    main_reqs = (REPO / "requirements.txt").read_text().lower()
+    for package in ("langgraph", "langchain"):
+        assert package not in main_reqs, f"{package} leaked into the canonical requirements"
+
+    # /labs, /agent and /mcp must not IMPORT the port or the framework. They may
+    # mention it in prose — agent/loop.py explains what the port exists to show,
+    # and that comment is doing useful work.
+    import ast as _ast
+
+    for path in list((REPO / "labs").rglob("*.py")) + list((REPO / "agent").rglob("*.py")) \
+            + list((REPO / "mcp").rglob("*.py")):
+        tree = _ast.parse(path.read_text())
+        for node in _ast.walk(tree):
+            if isinstance(node, _ast.Import):
+                names = [a.name for a in node.names]
+            elif isinstance(node, _ast.ImportFrom):
+                names = [node.module or ""]
+            else:
+                continue
+            for name in names:
+                assert not name.startswith(("langgraph", "langchain")), \
+                    f"{path.name} imports {name} — the canonical path must not depend on the port"
+
+    # The port pins the versions it was verified against, not floating ranges.
+    for line in (alt / "requirements.txt").read_text().splitlines():
+        if line.strip() and not line.startswith("#"):
+            assert "==" in line, f"unpinned dependency in the frozen port: {line}"
+
+
+def test_alt_readme_states_it_is_unmaintained():
+    """Framing from the build spec: future breakage must be a documented
+    expectation, not a defect someone can refund over."""
+    text = " ".join((REPO / "alt" / "langgraph" / "README.md").read_text().lower().split())
+    for phrase in ("frozen", "not maintained", "not covered by ci",
+                   "expected, not a defect"):
+        assert phrase in text, f"the port's README does not say {phrase!r}"
