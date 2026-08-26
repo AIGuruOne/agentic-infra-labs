@@ -79,7 +79,8 @@ if [ -n "$PY" ]; then
   row "Python 3.11-3.13" PASS "$PY ($PYV)"
 else
   CUR=$(python3 -c 'import sys; print("%d.%d" % sys.version_info[:2])' 2>/dev/null || echo "none")
-  row "Python 3.11-3.13" FAIL "found $CUR — install 3.12 (brew install python@3.12)"
+  row "Python 3.11-3.13" FAIL "found $CUR — see the note below"
+  PY_HELP=1
 fi
 
 # --- LLM key ----------------------------------------------------------------
@@ -113,6 +114,21 @@ if [ "$DOCKER_OK" = 1 ]; then
 else
   echo "${BOLD}${YELLOW}TIER B${RESET} — Docker isn't available here. That's fine: follow the session on screen,"
   echo "         and run the labs later from a machine that allows Docker. Nothing expires."
+fi
+if [ "${PY_HELP:-0}" = 1 ]; then
+  echo
+  echo "${BOLD}Python:${RESET} the session description says \"3.11+\". This repo needs"
+  echo "         ${BOLD}3.11, 3.12 or 3.13${RESET} — not 3.14. That imprecision is ours, not a"
+  echo "         fault on your machine."
+  echo
+  echo "         Every dependency is pinned so this still reproduces in 2027, and two"
+  echo "         of those pins have no 3.14 wheel yet."
+  echo
+  echo "         You do NOT need to change your system Python. Install one alongside"
+  echo "         it and setup.sh will find it:"
+  echo
+  echo "           brew install python@3.12            ${DIM}# macOS${RESET}"
+  echo "           sudo apt install python3.12-venv    ${DIM}# Debian / Ubuntu${RESET}"
 fi
 if [ "$KEY_OK" = 0 ]; then
   echo "${DIM}         (You'll need an LLM API key for Labs 2-4. Lab 1 runs without one.)${RESET}"

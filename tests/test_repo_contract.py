@@ -562,3 +562,30 @@ def test_unknown_filter_field_is_rejected_loudly():
 
     with _pytest.raises(ValueError):
         apply_metadata_filter(load_corpus(), environmnet="prod")
+
+
+def test_python_version_discrepancy_is_documented_where_learners_hit_it():
+    """The published session description says "Python 3.11+"; the repo needs
+    3.11-3.13. The description cannot be changed after publication, so the repo
+    has to own the discrepancy — and in both places a learner will look: the
+    README before they start, and doctor.sh at the moment it fails them.
+    """
+    readme = (REPO / "README.md").read_text()
+    assert "3.11+" in readme, "README does not acknowledge the published wording"
+    assert "not 3.14" in readme.lower()
+    assert "not a fault on your machine" in readme.lower(), \
+        "the README states the constraint but does not reassure"
+
+    doctor = (REPO / "scripts" / "doctor.sh").read_text()
+    assert "3.11+" in doctor, "doctor.sh does not reconcile with the published wording"
+    assert "not 3.14" in doctor.lower()
+    assert "python@3.12" in doctor, "doctor.sh does not tell the reader how to fix it"
+
+
+def test_readme_carries_the_prep_guidance_learners_need_days_ahead():
+    """Two prerequisites cannot be satisfied on the morning: an API key with
+    credit, and permission to run Docker on a managed laptop."""
+    readme = (REPO / "README.md").read_text().lower()
+    assert "start them now" in readme
+    assert "whether policy permits it" in readme, \
+        "README does not distinguish 'Docker installed' from 'Docker allowed'"
