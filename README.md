@@ -14,6 +14,9 @@ Docker, you can still run the lab that carries the session's central lesson.
 
 ## Before the session
 
+👉 **[SETUP.md](SETUP.md) is the step-by-step version — 15 minutes, best done the
+day before.** The table below is the short form.
+
 Two of these take minutes. Two can take days, so start them now.
 
 | | |
@@ -127,13 +130,19 @@ result, without running a single command:
 git clone https://github.com/AIGuruOne/agentic-infra-labs
 cd agentic-infra-labs
 
-make doctor                       # what tier am I?
-make setup                        # tooling + venv
-cp .env.example .env              # add your ANTHROPIC_API_KEY
-make cluster                      # 3-node kind cluster, workloads, Prometheus
-make verify                       # health table, should be all-PASS
-make tour                         # what IS all this? start here
+make doctor            # what tier am I? what is missing?
+make setup             # kind, kubectl, a Python venv, and a .env for you
+                       #   -> now open .env and add your ANTHROPIC_API_KEY
+make cluster           # 3-node kind cluster, workloads, Prometheus  (~1m40s)
+make verify            # health table — every row should say PASS
+make tour              # what IS all this? start here
 ```
+
+**Do not run `cp .env.example .env` yourself.** `make setup` creates it, and
+copying over the top of it wipes the key you just added.
+
+Measured on a fresh clone with no cluster and nothing cached: **97 seconds**
+from `make cluster` to ALL PASS.
 
 **Run `make tour` before your first lab.** Every lab from there asks you to
 reason about `ml-prod`, `inference-api` and a GPU node; the tour shows you what
@@ -241,6 +250,7 @@ mcp/            k8s and Prometheus MCP servers
 agent/          loop, provider seam, guardrails, audit log
 alt/langgraph/  frozen LangGraph reference port — not maintained
 tests/          what must not silently break
+SETUP.md        step-by-step, before the session
 TROUBLESHOOTING.md  when something does not work
 GLOSSARY.md     every term the session uses, defined
 ```

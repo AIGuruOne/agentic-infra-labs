@@ -1059,3 +1059,49 @@ def test_glossary_is_linked_where_someone_would_look():
     assert readme.count("GLOSSARY.md") >= 2, "the glossary is barely referenced"
     top = readme[: readme.index("## Which tier are you?")]
     assert "GLOSSARY.md" in top, "the glossary is not linked before the reader starts working"
+
+
+def test_quickstart_does_not_overwrite_a_configured_env():
+    """setup.sh creates .env from .env.example. The Quickstart also said to run
+    `cp .env.example .env`, which is redundant on a first run and silently wipes
+    the key on any later one — the single most annoying way to lose ten minutes
+    before a session."""
+    readme = (REPO / "README.md").read_text()
+    assert "cp .env.example .env\n" not in readme, \
+        "the Quickstart still tells people to overwrite their own .env"
+    assert "make setup" in readme
+
+    setup = (REPO / "scripts" / "setup.sh").read_text()
+    assert "cp .env.example .env" in setup, "setup.sh no longer creates .env"
+    # and it must not clobber an existing one
+    env_block = setup[setup.index('say "env"'):]
+    assert "if [ ! -f .env ]" in env_block, "setup.sh would overwrite an existing .env"
+
+
+def test_setup_guide_matches_what_the_scripts_do():
+    """SETUP.md is the file most attendees will follow before the session, on
+    their own, with nobody to ask. Every command in it must be real and every
+    claim checkable."""
+    import re as _re
+    import subprocess
+
+    doc = (REPO / "SETUP.md").read_text()
+
+    # Every make target it names must exist.
+    for target in set(_re.findall(r"make ([a-z0-9-]+)", doc)):
+        proc = subprocess.run(["make", "-n", target], cwd=REPO,
+                              capture_output=True, text=True, timeout=60)
+        assert proc.returncode == 0 and "Nothing to be done" not in proc.stdout, \
+            f"SETUP.md tells people to run `make {target}`, which does nothing"
+
+    # The three tiers must all be addressed — Tier B and C are the whole reason
+    # this file leads with doctor rather than install steps.
+    for tier in ("Tier A", "Tier B", "Tier C"):
+        assert tier in doc or tier.replace("Tier ", "**") in doc, f"{tier} unaddressed"
+
+    # And it must not reintroduce the .env footgun.
+    assert "cp .env.example .env" not in doc.replace(
+        "don't run\n`cp .env.example .env` yourself", ""), \
+        "SETUP.md tells people to overwrite their own .env"
+
+    assert "SETUP.md" in (REPO / "README.md").read_text()
