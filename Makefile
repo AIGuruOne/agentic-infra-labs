@@ -31,7 +31,10 @@ KUBECTL := kubectl --context kind-$(CLUSTER)
 # around it exited 0.
 
 help:
-	@sed -n '2,14p' Makefile | sed 's/^# \?//'
+	@# Print the comment block at the top, stopping at the first blank comment
+	@# line. Slicing fixed line numbers broke the moment a target was added —
+	@# `make help` started printing SHELL := and .SHELLFLAGS at people.
+	@awk '/^#/{sub(/^# ?/,""); print; next} {exit}' Makefile
 
 doctor:
 	@./scripts/doctor.sh

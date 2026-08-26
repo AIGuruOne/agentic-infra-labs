@@ -910,3 +910,40 @@ def test_break_scripts_wait_for_their_own_symptom():
     lib_src = (REPO / "faults" / "lib.sh").read_text()
     assert "return 0" in lib_src.split("warning:")[1], \
         "wait_for returns non-zero on timeout, which aborts the break under set -e"
+
+
+def test_make_help_does_not_leak_makefile_internals():
+    """`make help` sliced fixed line numbers (`sed -n '2,14p'`). Adding one
+    target shifted the window and it started printing `SHELL :=` and
+    `.SHELLFLAGS` at learners — and would silently drop a real target off the
+    bottom every time one was added."""
+    import subprocess
+
+    proc = subprocess.run(["make", "help"], cwd=REPO,
+                          capture_output=True, text=True, timeout=60)
+    assert proc.returncode == 0, proc.stderr
+    out = proc.stdout
+
+    for leak in ("SHELL :=", ".SHELLFLAGS", ".PHONY", "$(PY)"):
+        assert leak not in out, f"make help leaks {leak!r}"
+
+    for target in ("make doctor", "make setup", "make tour", "make cluster",
+                   "make verify", "make reset", "make clean", "make lab1"):
+        assert target in out, f"make help does not mention {target}"
+
+
+def test_every_make_target_invokes_something():
+    """The break-% class of bug: a target that resolves to nothing and exits 0.
+    `make -n` shows what would run without running it."""
+    import subprocess
+
+    for target in ["doctor", "setup", "tour", "cluster", "verify", "reset",
+                   "clean", "test", "lab1", "lab2", "lab3", "lab4",
+                   "break-1", "break-4", "break-7"]:
+        proc = subprocess.run(["make", "-n", target], cwd=REPO,
+                              capture_output=True, text=True, timeout=60)
+        assert proc.returncode == 0, f"make -n {target}: {proc.stderr[-300:]}"
+        assert "Nothing to be done" not in proc.stdout, \
+            f"make {target} is a no-op"
+        body = "\n".join(l for l in proc.stdout.splitlines() if not l.startswith("make["))
+        assert body.strip(), f"make {target} would run nothing at all"
