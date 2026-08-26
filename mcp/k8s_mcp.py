@@ -553,5 +553,38 @@ def get_nodes() -> str:
 #     )
 
 
+# ---------------------------------------------------------------------------
+# Lab 2 extension exercise, part two — write one yourself
+# ---------------------------------------------------------------------------
+# Part one above is an uncomment. This one is not: there is no code here to
+# reveal, because the point is that you write the description as well as the
+# body.
+#
+# The gap: nothing in this server exposes a Deployment's *rollout history*. The
+# agent can see what is running now, and it can read events, but it cannot see
+# which revision introduced a change or what the previous revision looked like.
+# That is the single most useful missing fact in scenarios 01 and 07 — the ones
+# whose remediation is `rollout undo`.
+#
+# Write `get_rollout_history(namespace, name)`. ReplicaSets carry the revision
+# number in the annotation `deployment.kubernetes.io/revision`, and the agent's
+# Role already permits reading them, so nothing else has to change.
+#
+# Write the docstring FIRST, and make it answer the three questions every other
+# tool in this file answers:
+#
+#     what it returns   so the model can tell this is the right tool
+#     when to use it    so it reaches for this rather than get_deployment
+#     what it costs
+#
+# Then run scenario 01 and watch whether the model calls it unprompted. If it
+# does not, the docstring is the thing to change — not the code.
+#
+# A worked solution is at the bottom of labs/lab2-live-state-agent/EXPECTED.md.
+# Try it before you read it; the interesting part is the docstring, and there is
+# more than one good answer.
+# ---------------------------------------------------------------------------
+
+
 if __name__ == "__main__":
     server.run(transport="stdio")

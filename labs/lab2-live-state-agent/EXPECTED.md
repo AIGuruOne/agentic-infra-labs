@@ -116,21 +116,126 @@ general, but only the live event says which ones are true here, and only
 
 ---
 
-## Extending the MCP server (the exercise)
+## Extending the MCP server — the exercise, in two parts
 
-Open `mcp/k8s_mcp.py` and find `get_resource_quota`. The docstring is written;
-the body is commented out. Uncomment the eight lines between the two marker
-comments and re-run any scenario.
+The session description says you will extend the Kubernetes MCP server "with a
+tool of your own". Being precise about what that means, because the two halves
+are different exercises:
 
-Read the docstring before you uncomment it. Notice that it does not describe
-the implementation — it says what comes back, when this tool is the right call
-rather than `get_nodes`, and what it costs. Node capacity and namespace quota
-are two independent ceilings on scheduling, and that sentence is what will make
-the model reach for this tool at the right moment.
+### Part one — uncomment (about 5 minutes)
 
-The agent's Role already permits reading ResourceQuota, so it works as soon as
-you uncomment it. No restart of anything else is needed — the MCP server is a
-subprocess started fresh on each run.
+Open `mcp/k8s_mcp.py` and find the commented block for `get_resource_quota`.
+The decorator, the docstring and the body are all written; uncomment them and
+re-run any scenario.
+
+**This is deliberately not a writing exercise.** A blank function in front of a
+global cohort is a dead ten minutes, and the thing worth your attention here is
+not the eight lines of implementation.
+
+Read the docstring before you uncomment it. Notice that it does not describe the
+code. It says what comes back, when this tool is the right call *rather than*
+`get_nodes`, and what it costs:
+
+> *"Use this when a workload will not schedule and the nodes look like they have
+> room. Node capacity and namespace quota are two independent ceilings: a pod
+> can be rejected because the namespace has exhausted its quota even though the
+> cluster has plenty of free CPU."*
+
+That sentence is what makes the model reach for it at the right moment. The
+implementation underneath is the easy half.
+
+Note also that the decorator is commented out, not just the body. A tool that is
+registered but returns "not implemented" is still advertised to the model, which
+will call it, read the apology, and have spent an iteration and a few thousand
+tokens learning nothing.
+
+### Part two — write one (about 20 minutes)
+
+This one is yours, and there is no code to reveal.
+
+**The gap:** nothing in this server exposes a Deployment's *rollout history*.
+The agent can see what is running now and it can read events, but it cannot see
+which revision introduced a change, or what the previous revision looked like.
+That is the single most useful missing fact in scenarios 01 and 07 — the two
+whose remediation is `rollout undo`.
+
+**Write `get_rollout_history(namespace, name)`.** ReplicaSets carry the revision
+number in the annotation `deployment.kubernetes.io/revision`, and the agent's
+Role already permits reading them, so no RBAC change is needed.
+
+**Write the docstring first.** Make it answer the same three questions every
+other tool in that file answers — what it returns, when to use it rather than
+`get_deployment`, and what it costs. Then run scenario 01 and watch whether the
+model calls it *unprompted*.
+
+If it does not, the docstring is the thing to change, not the code. That is the
+whole lesson of Segment 2, and this is where you get to test it on something you
+wrote.
+
+---
+
+## Reference solution — try part two before reading this
+
+Roughly twenty lines. Yours will differ, and the interesting variation is in the
+docstring rather than the body.
+
+```python
+@server.tool()
+def get_rollout_history(namespace: str, name: str) -> str:
+    """Revision history for a Deployment: what each revision was running.
+
+    Returns one row per revision, newest first — revision number, current
+    replica count, container image, and the MODEL_CONFIG_PATH it was deployed
+    with. The row with a non-zero replica count is the revision serving now.
+
+    Use this when something changed and you need to know WHAT changed.
+    get_deployment tells you the current spec; this tells you the spec before
+    it, which is what turns "the config path is wrong" into "revision 32
+    introduced the wrong config path, and revision 31 was fine". It is also how
+    you confirm a rollback has somewhere safe to land before proposing one.
+
+    Cheap — one API call. Truncated to the six most recent revisions.
+    """
+    try:
+        replica_sets = apps.list_namespaced_replica_set(
+            namespace, label_selector=f"app={name}")
+    except Exception as e:
+        return _err(e)
+
+    rows = []
+    for rs in replica_sets.items:
+        revision = (rs.metadata.annotations or {}).get(
+            "deployment.kubernetes.io/revision")
+        if not revision or not revision.isdigit():
+            continue
+        container = rs.spec.template.spec.containers[0]
+        env = {e.name: e.value for e in (container.env or []) if e.value is not None}
+        rows.append((int(revision), rs.spec.replicas, container.image,
+                     env.get("MODEL_CONFIG_PATH", "-")))
+
+    if not rows:
+        return f"no rollout history for {namespace}/{name}"
+
+    rows.sort(reverse=True)
+    out = ["revision  replicas  image                          MODEL_CONFIG_PATH"]
+    for revision, replicas, image, config_path in rows[:6]:
+        marker = "  <- serving now" if replicas else ""
+        out.append(f"{revision:>8}  {replicas:>8}  {image:<30} {config_path}{marker}")
+    return "\n".join(out)
+```
+
+Real output, immediately after `make break-1`:
+
+```
+revision  replicas  image                          MODEL_CONFIG_PATH
+      33         3  inference-stub:v2              /etc/model/config.json  <- serving now
+      32         0  inference-stub:v2              /etc/model/config-v3.json
+      28         0  inference-stub:v3-broken       /etc/model/config.json
+```
+
+Revision 32 is the one that broke it, and the image never changed — which is
+exactly the fact scenario 01's diagnosis has to establish, and which the agent
+currently has to infer from a pod spec instead of reading directly.
 
 ---
 

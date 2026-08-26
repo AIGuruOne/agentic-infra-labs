@@ -589,3 +589,52 @@ def test_readme_carries_the_prep_guidance_learners_need_days_ahead():
     assert "start them now" in readme
     assert "whether policy permits it" in readme, \
         "README does not distinguish 'Docker installed' from 'Docker allowed'"
+
+
+def test_lab2_reference_solution_is_valid_and_self_consistent():
+    """Lab 2 ships a worked solution for the write-your-own exercise. A lab
+    answer that does not run is worse than no answer, and it would rot silently
+    the first time k8s_mcp.py's helpers were renamed.
+
+    Parses it and checks every name it depends on still exists in the server.
+    (Executing it needs a live cluster, so that check lives in CI's smoke job.)
+    """
+    import ast as _ast
+    import re as _re
+
+    doc = (REPO / "labs" / "lab2-live-state-agent" / "EXPECTED.md").read_text()
+    match = _re.search(r"```python\n(@server\.tool\(\).*?)```", doc, _re.S)
+    assert match, "Lab 2's reference solution block is missing"
+
+    block = match.group(1)
+    tree = _ast.parse(block)          # must be syntactically valid Python
+
+    func = next(n for n in tree.body if isinstance(n, _ast.FunctionDef))
+    assert func.name == "get_rollout_history"
+    assert _ast.get_docstring(func), "the reference solution has no docstring"
+
+    docstring = _ast.get_docstring(func).lower()
+    assert "returns" in docstring, "docstring does not say what it returns"
+    assert "use this" in docstring, "docstring does not say when to use it"
+    assert "cheap" in docstring or "cost" in docstring, "docstring does not state cost"
+
+    server = (REPO / "mcp" / "k8s_mcp.py").read_text()
+    for dependency in ("apps = client.AppsV1Api()", "def _err("):
+        assert dependency in server, \
+            f"the reference solution depends on {dependency!r}, which no longer exists"
+
+    # and the exercise it answers must actually be set. Normalise whitespace:
+    # the brief is a wrapped comment block, so phrases straddle line breaks.
+    assert "get_rollout_history" in server, "the exercise brief is missing from k8s_mcp.py"
+    flat = " ".join(server.replace("#", " ").split())
+    assert "no code here to reveal" in flat, "the write-your-own brief is missing"
+
+
+def test_extension_exercise_is_described_honestly():
+    """The published description says attendees extend the MCP server "with a
+    tool of your own". Part one is an uncomment, which is the right call for a
+    live cohort but is not writing a tool. The lab has to say which is which."""
+    doc = " ".join((REPO / "labs" / "lab2-live-state-agent" / "EXPECTED.md")
+                   .read_text().lower().split())
+    assert "deliberately not a writing exercise" in doc
+    assert "part two" in doc and "no code to reveal" in doc
