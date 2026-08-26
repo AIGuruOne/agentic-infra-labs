@@ -798,22 +798,27 @@ def test_tour_runs_without_a_cluster():
     assert "Lab 1 needs no cluster" in proc.stdout
 
 
-def test_record_helper_waits_long_enough_for_break_4():
-    """break-4 is invisible for 60 seconds — measured: p95 is still 24ms at
-    T+30s. Recording it early produces a clip in which the agent correctly
-    reports nothing is wrong, which on screen is indistinguishable from the
-    demo being broken."""
-    import re as _re
+def test_a_take_cannot_be_recorded_before_the_fault_is_real():
+    """Recording a take against a cluster that has not caught up produces a clip
+    in which the agent correctly reports nothing is wrong — indistinguishable,
+    on screen, from a broken demo.
 
-    script = (REPO / "scripts" / "record.sh").read_text()
-    assert "record.sh" in script
+    That guarantee used to be a hardcoded 90s countdown inside record.sh. It now
+    lives in the break scripts themselves, which block until their own fault is
+    observable, so it holds for every caller — record.sh, the session aliases,
+    the LAB.md chains and CI — rather than just the one that remembered.
+    """
+    record = (REPO / "scripts" / "record.sh").read_text()
+    assert "./faults/break-" in record, "record.sh does not invoke the break scripts"
 
-    block = script[script.index('  4)'):script.index('  [1-7])')]
-    waits = [int(n) for n in _re.findall(r"seq (\d+) -", block)]
-    assert waits and waits[0] >= 90, \
-        f"the break-4 take waits {waits or 'nothing'}; it needs at least 90s"
-    assert "INVISIBLE" in block or "invisible" in block.lower(), \
-        "the wait is there but nothing explains why, so someone will shorten it"
+    # No caller should be re-implementing the wait.
+    assert "seq 90" not in record and "sleep 90" not in record, \
+        "record.sh has its own wait again; the break script already blocks"
+
+    # And the guarantee must actually be in the break script.
+    four = (REPO / "faults" / "break-4.sh").read_text()
+    assert "wait_for" in four and "prometheus" in four.lower(), \
+        "break-4 no longer blocks on the metric"
 
 
 def test_record_helper_resets_before_every_take():
