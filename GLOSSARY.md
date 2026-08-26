@@ -109,6 +109,13 @@ signal you would normally check comes back clean. *(Segments 3, 7)*
 
 ## Agents and tools
 
+**Agentic**
+Describes a system with three things at once: tools it can call, a loop so that
+what it sees decides what it looks at next, and a stopping condition so it knows
+when it is done. Remove any one and it is something else — tools without a loop
+is a plugin, and a loop without a stopping condition is a `while true` you will
+regret. *(Segment 1)*
+
 **Agent**
 A loop, not a pipeline: observe, plan, act, verify, repeat until the model stops
 asking for things. A pipeline runs a fixed set of steps whether or not they
@@ -206,6 +213,7 @@ recording with a different background.
 | **HPA** | Horizontal Pod Autoscaler — adds or removes replicas against a metric target |
 | **RBAC** | Kubernetes' permission system: who may perform which verb on which resource |
 | **ServiceAccount** | The identity a workload authenticates as to the API server |
+| **Inference** | Running an already-trained model to get predictions. The lab's `inference-api` is a stub that behaves like any other HTTP workload |
 | **Prometheus** | A metrics database that scrapes endpoints and answers range queries |
 | **PromQL** | Prometheus' query language. `histogram_quantile(0.95, ...)` is the p95 expression used throughout |
 | **p95 latency** | The response time 95% of requests come in under |

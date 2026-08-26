@@ -995,3 +995,57 @@ def test_prompts_do_not_name_a_real_runbook_as_the_citation_example():
         for rid in corpus_ids:
             assert f"[{rid}]" not in text, \
                 f"{path.name} uses {rid}, a real runbook, as the citation example"
+
+
+def test_glossary_claims_resolve():
+    """The glossary is read by people who then go looking for what it names.
+    An earlier draft pointed at a `--dense` flag that does not exist and at
+    `/alt/langgraph` before it was built."""
+    import subprocess
+    import sys
+
+    text = (REPO / "GLOSSARY.md").read_text()
+
+    for path in set(re.findall(r"`([a-zA-Z0-9_/.-]+\.(?:py|md|sh|yaml|json|jsonl))`", text)) | \
+                set(re.findall(r"`(/[a-z/]+)`", text)):
+        candidate = REPO / path.lstrip("/")
+        assert candidate.exists(), f"GLOSSARY.md names {path}, which does not exist"
+
+    helps = ""
+    for script in ["labs/lab1-knowledge-layer/ask.py",
+                   "labs/lab2-live-state-agent/investigate.py",
+                   "labs/lab3-guardrails/remediate.py",
+                   "labs/lab4-evals/run_evals.py"]:
+        helps += subprocess.run([sys.executable, str(REPO / script), "--help"],
+                                capture_output=True, text=True).stdout
+    for flag in set(re.findall(r"`(--[a-z-]+)`", text)):
+        assert flag in helps, f"GLOSSARY.md names {flag}, which no lab accepts"
+
+
+def test_glossary_iteration_counts_match_the_scorecard():
+    """The Agent entry cites real iteration counts as its illustration. They
+    drift whenever the scorecard is re-recorded."""
+    import json
+
+    text = (REPO / "GLOSSARY.md").read_text()
+    words = {"three": 3, "four": 4, "five": 5, "six": 6, "seven": 7, "eight": 8}
+
+    claimed = re.search(
+        r"scenario\s*\n?\s*01 finishes in (\w+) iterations and scenario 04 takes (\w+)",
+        text)
+    if not claimed:
+        return  # phrasing changed; nothing numeric to check
+
+    scorecard = json.loads((REPO / "labs" / "lab4-evals" / "scorecard.json").read_text())
+    actual = {r["id"].split("-")[1]: r["iterations"] for r in scorecard["results"]}
+    assert words[claimed.group(1)] == actual["01"], \
+        f"glossary says scenario 01 takes {claimed.group(1)}, scorecard says {actual['01']}"
+    assert words[claimed.group(2)] == actual["04"], \
+        f"glossary says scenario 04 takes {claimed.group(2)}, scorecard says {actual['04']}"
+
+
+def test_glossary_is_linked_where_someone_would_look():
+    readme = (REPO / "README.md").read_text()
+    assert readme.count("GLOSSARY.md") >= 2, "the glossary is barely referenced"
+    top = readme[: readme.index("## Which tier are you?")]
+    assert "GLOSSARY.md" in top, "the glossary is not linked before the reader starts working"

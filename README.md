@@ -58,6 +58,10 @@ on.
 failures we actually hit building this. `make reset` fixes most of them in
 20 seconds.
 
+**Unfamiliar term?** [GLOSSARY.md](GLOSSARY.md) defines everything the session
+uses without stopping to explain — agentic, grounding, BM25, MCP, xfail. The
+Kubernetes terms are assumed; the AI ones are not.
+
 ---
 
 ## Which tier are you?
