@@ -688,3 +688,79 @@ def test_no_duplicate_cli_flags_within_a_lab():
         flags = _re.findall(r'add_argument\(\s*"(--[a-z][a-z-]*)"', source)
         duplicates = {f for f in flags if flags.count(f) > 1}
         assert not duplicates, f"{script} defines {sorted(duplicates)} twice"
+
+
+def test_no_two_flags_share_a_dest():
+    """`--help` succeeding is not enough.
+
+    Giving --cloud-provider `dest="provider"` builds a perfectly valid parser
+    and then silently overwrites the LLM provider's default with None. The
+    parser test passed; `make lab1` died with KeyError: None at call time.
+    """
+    import re as _re
+
+    for script in ["labs/lab1-knowledge-layer/ask.py",
+                   "labs/lab2-live-state-agent/investigate.py",
+                   "labs/lab3-guardrails/remediate.py",
+                   "labs/lab4-evals/run_evals.py"]:
+        source = (REPO / script).read_text()
+        dests = []
+        for call in _re.findall(r"add_argument\((.*?)\)\n", source, _re.S):
+            explicit = _re.search(r'dest\s*=\s*"([a-z_]+)"', call)
+            if explicit:
+                dests.append(explicit.group(1))
+                continue
+            flag = _re.search(r'"--([a-z][a-z-]*)"', call)
+            if flag:
+                dests.append(flag.group(1).replace("-", "_"))
+        duplicates = {d for d in dests if dests.count(d) > 1}
+        assert not duplicates, f"{script}: two arguments share dest {sorted(duplicates)}"
+
+
+def test_lab1_actually_runs_both_ways():
+    """The end-to-end check the parser tests could not make.
+
+    Lab 1 needs no cluster and no API key in --retrieval-only mode, so this runs
+    anywhere — including CI. It is the first demo of the session; it should be
+    the most-tested path in the repo, and until now it was untested end to end.
+    """
+    import subprocess
+    import sys
+
+    question = "why are prod inference pods repeatedly restarting?"
+    script = str(REPO / "labs" / "lab1-knowledge-layer" / "ask.py")
+
+    filtered = subprocess.run(
+        [sys.executable, script, question, "--environment", "prod",
+         "--namespace", "ml-prod", "--retrieval-only"],
+        capture_output=True, text=True, timeout=120)
+    assert filtered.returncode == 0, filtered.stderr[-800:]
+    assert "RB-014" in filtered.stdout
+
+    unfiltered = subprocess.run(
+        [sys.executable, script, question, "--no-metadata-filter", "--retrieval-only"],
+        capture_output=True, text=True, timeout=120)
+    assert unfiltered.returncode == 0, unfiltered.stderr[-800:]
+    assert "RB-009" in unfiltered.stdout
+
+    # The contrast is the lab. If the top hit ever agrees, there is no lesson.
+    first_filtered = filtered.stdout.split("1.")[1].split()[0]
+    first_unfiltered = unfiltered.stdout.split("1.")[1].split()[0]
+    assert first_filtered != first_unfiltered, "the two commands returned the same runbook"
+
+
+def test_every_metadata_flag_is_accepted_at_runtime():
+    """Each filterable field must survive an actual invocation, not just exist
+    in --help."""
+    import subprocess
+    import sys
+
+    script = str(REPO / "labs" / "lab1-knowledge-layer" / "ask.py")
+    for flag, value in [("--environment", "prod"), ("--cluster", "ml-cluster-1"),
+                        ("--namespace", "ml-prod"), ("--service", "inference-api"),
+                        ("--model", "sentiment-v2"), ("--gpu-type", "a10g"),
+                        ("--cloud-provider", "aws"), ("--region", "us-east-1")]:
+        proc = subprocess.run([sys.executable, script, "restarting", flag, value,
+                               "--retrieval-only"],
+                              capture_output=True, text=True, timeout=120)
+        assert proc.returncode == 0, f"{flag} {value} failed:\n{proc.stderr[-500:]}"

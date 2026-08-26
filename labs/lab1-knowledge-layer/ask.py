@@ -102,7 +102,10 @@ def main() -> int:
     ap.add_argument("--gpu-type", dest="gpu_type")
     # --cloud-provider, not --provider: the runbook frontmatter field is the
     # cloud (aws), and --provider is already taken by the LLM provider below.
-    ap.add_argument("--cloud-provider", dest="provider")
+    # Note the dest is cloud_provider too — reusing dest="provider" builds a
+    # perfectly valid parser and then silently overwrites the LLM provider's
+    # value, which fails at call time instead of parse time.
+    ap.add_argument("--cloud-provider", dest="cloud_provider")
     ap.add_argument("--region")
     ap.add_argument(
         "--no-metadata-filter",
@@ -120,7 +123,11 @@ def main() -> int:
     use_filter = not args.no_metadata_filter
     corpus = load_corpus()
     from retrieval import FILTERABLE_FIELDS
+
+    # The frontmatter field is `provider`; the CLI calls it --cloud-provider so
+    # it cannot collide with the LLM --provider. Map one to the other here.
     constraints = {f: getattr(args, f, None) for f in FILTERABLE_FIELDS}
+    constraints["provider"] = args.cloud_provider
     hits = search(
         args.question, corpus,
         use_metadata_filter=use_filter, top_k=args.rank_k, **constraints,
