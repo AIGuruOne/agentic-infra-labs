@@ -1,3 +1,19 @@
+# ---------------------------------------------------------------------------
+# THIRD-PARTY FILE — not covered by this repository's MIT licence.
+#
+# Vendored from kubernetes-sigs/metrics-server v0.8.0
+#   https://github.com/kubernetes-sigs/metrics-server
+#   Copyright The Kubernetes Authors.
+#   Licensed under the Apache License, Version 2.0
+#   http://www.apache.org/licenses/LICENSE-2.0
+#
+# Modified: `--kubelet-insecure-tls` added to the metrics-server container args,
+# because kind's kubelets serve self-signed certificates and without it every
+# HPA reads <unknown>/70%. No other change.
+#
+# Vendored rather than fetched at cluster-creation time so that a buyer running
+# this in 2027 gets the bytes we tested against.
+# ---------------------------------------------------------------------------
 apiVersion: v1
 kind: ServiceAccount
 metadata:

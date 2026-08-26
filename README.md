@@ -183,9 +183,13 @@ the whole session.
 
 ---
 
-## Licence and ownership
+## Licence
 
-See [LICENSE.md](LICENSE.md).
+**MIT** — see [LICENSE](LICENSE), with third-party and trademark notes in [LICENSE.md](LICENSE.md). Use it, change it, ship it inside your
+own systems, teach from it.
+
+One carve-out: `observability/metrics-server.yaml` is vendored from
+kubernetes-sigs/metrics-server and stays under Apache 2.0.
 
 ---
 

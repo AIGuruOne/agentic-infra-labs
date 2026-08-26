@@ -440,3 +440,44 @@ def test_alt_readme_states_it_is_unmaintained():
     for phrase in ("frozen", "not maintained", "not covered by ci",
                    "expected, not a defect"):
         assert phrase in text, f"the port's README does not say {phrase!r}"
+
+
+def test_licence_is_mit_and_carves_out_vendored_code():
+    """The repo is MIT, but observability/metrics-server.yaml is vendored from
+    kubernetes-sigs/metrics-server under Apache 2.0. A blanket MIT grant would
+    purport to relicense someone else's file."""
+    # The plain LICENSE file is what GitHub's detector reads and what puts the
+    # MIT badge on the repository; LICENSE.md carries the longer notices.
+    plain = (REPO / "LICENSE").read_text()
+    assert plain.lstrip().startswith("MIT License")
+    assert "Permission is hereby granted, free of charge" in plain
+    assert "WITHOUT WARRANTY OF ANY KIND" in plain
+    assert "metrics-server" in plain, "the plain LICENSE does not flag the vendored file"
+
+    licence = (REPO / "LICENSE.md").read_text()
+    assert "MIT License" in licence
+    assert "Permission is hereby granted, free of charge" in licence
+
+    assert "Apache License" in licence and "metrics-server" in licence, \
+        "LICENSE.md does not carve out the vendored Apache-2.0 manifest"
+
+    vendored = (REPO / "observability" / "metrics-server.yaml").read_text()
+    assert "Apache License" in vendored, "the vendored file carries no attribution header"
+    assert "THIRD-PARTY" in vendored
+
+
+def test_licence_reserves_the_trademark():
+    """MIT grants rights to software, not to marks. AI Guru is registered."""
+    licence = (REPO / "LICENSE.md").read_text()
+    assert "Trademark" in licence or "trademark" in licence
+    assert "AI Guru" in licence
+
+
+def test_no_placeholder_licence_text_ships():
+    """The previous LICENSE.md carried a visible 'replace this before
+    publishing' note. Shipping that publicly would be worse than shipping
+    nothing."""
+    licence = (REPO / "LICENSE.md").read_text().lower()
+    for phrase in ("note for the repository owner", "counsel-approved",
+                   "replace it with", "placeholder", "todo"):
+        assert phrase not in licence, f"LICENSE.md still contains placeholder text: {phrase!r}"
