@@ -17,7 +17,7 @@ CLUSTER := agentic-infra-labs
 PY      := .venv/bin/python
 KUBECTL := kubectl --context kind-$(CLUSTER)
 
-.PHONY: help doctor setup tour cluster verify reset clean load-stop test \
+.PHONY: help doctor setup tour cluster verify reset clean load-stop test record \
         break-1 break-2 break-3 break-4 break-5 break-6 break-7 \
         lab1 lab2 lab3 lab4
 
@@ -32,6 +32,9 @@ setup:
 
 tour:
 	@./scripts/tour.sh
+
+record:
+	@./scripts/record.sh $(N)
 
 cluster:
 	@./scripts/cluster.sh

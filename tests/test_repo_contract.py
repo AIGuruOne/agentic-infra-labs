@@ -796,3 +796,29 @@ def test_tour_runs_without_a_cluster():
     assert proc.returncode == 0, proc.stderr[-600:]
     assert "RB-014" in proc.stdout and "RB-009" in proc.stdout
     assert "Lab 1 needs no cluster" in proc.stdout
+
+
+def test_record_helper_waits_long_enough_for_break_4():
+    """break-4 is invisible for 60 seconds — measured: p95 is still 24ms at
+    T+30s. Recording it early produces a clip in which the agent correctly
+    reports nothing is wrong, which on screen is indistinguishable from the
+    demo being broken."""
+    import re as _re
+
+    script = (REPO / "scripts" / "record.sh").read_text()
+    assert "record.sh" in script
+
+    block = script[script.index('  4)'):script.index('  [1-7])')]
+    waits = [int(n) for n in _re.findall(r"seq (\d+) -", block)]
+    assert waits and waits[0] >= 90, \
+        f"the break-4 take waits {waits or 'nothing'}; it needs at least 90s"
+    assert "INVISIBLE" in block or "invisible" in block.lower(), \
+        "the wait is there but nothing explains why, so someone will shorten it"
+
+
+def test_record_helper_resets_before_every_take():
+    """A take recorded on a dirty cluster shows a fault nobody injected."""
+    script = (REPO / "scripts" / "record.sh").read_text()
+    assert "reset.sh" in script
+    assert script.count("prep") >= 4, "not every branch resets first"
+    assert re.search(r"^record:", (REPO / "Makefile").read_text(), re.M)
