@@ -452,7 +452,13 @@ def test_licence_is_mit_and_carves_out_vendored_code():
     assert plain.lstrip().startswith("MIT License")
     assert "Permission is hereby granted, free of charge" in plain
     assert "WITHOUT WARRANTY OF ANY KIND" in plain
-    assert "metrics-server" in plain, "the plain LICENSE does not flag the vendored file"
+    # The plain LICENSE must stay verbatim MIT and nothing else. GitHub's
+    # detector scores against the exact licence body, and a trailing custom note
+    # drops it below the match threshold — the repo then shows "NOASSERTION"
+    # instead of an MIT badge. Third-party notices live in LICENSE.md.
+    assert "metrics-server" not in plain, \
+        "LICENSE must be verbatim MIT; put third-party notices in LICENSE.md"
+    assert plain.rstrip().endswith("SOFTWARE.")
 
     licence = (REPO / "LICENSE.md").read_text()
     assert "MIT License" in licence
