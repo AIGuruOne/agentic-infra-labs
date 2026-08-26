@@ -100,7 +100,9 @@ def main() -> int:
     ap.add_argument("--service")
     ap.add_argument("--model")
     ap.add_argument("--gpu-type", dest="gpu_type")
-    ap.add_argument("--provider")
+    # --cloud-provider, not --provider: the runbook frontmatter field is the
+    # cloud (aws), and --provider is already taken by the LLM provider below.
+    ap.add_argument("--cloud-provider", dest="provider")
     ap.add_argument("--region")
     ap.add_argument(
         "--no-metadata-filter",

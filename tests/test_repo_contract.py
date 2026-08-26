@@ -638,3 +638,53 @@ def test_extension_exercise_is_described_honestly():
                    .read_text().lower().split())
     assert "deliberately not a writing exercise" in doc
     assert "part two" in doc and "no code to reveal" in doc
+
+
+@pytest.mark.parametrize("script", [
+    "labs/lab1-knowledge-layer/ask.py",
+    "labs/lab2-live-state-agent/investigate.py",
+    "labs/lab3-guardrails/remediate.py",
+    "labs/lab4-evals/run_evals.py",
+    "alt/langgraph/investigate.py",
+])
+def test_every_lab_cli_actually_parses(script):
+    """`--help` must work on every entrypoint.
+
+    This shipped broken: adding one CLI flag per filterable metadata field
+    introduced a second `--provider` — the runbook frontmatter's cloud provider
+    colliding with the LLM provider — and argparse raised on construction. Lab
+    1, the first demo of the session, could not start.
+
+    73 tests were green at the time. None of them invoked a parser.
+    """
+    import subprocess
+    import sys
+
+    interpreter = sys.executable
+    if script.startswith("alt/"):
+        venv = REPO / "alt" / "langgraph" / ".venv" / "bin" / "python"
+        if not venv.exists():
+            pytest.skip("the frozen port's venv is not installed here")
+        interpreter = str(venv)
+
+    proc = subprocess.run([interpreter, str(REPO / script), "--help"],
+                          capture_output=True, text=True, timeout=120)
+    assert proc.returncode == 0, (
+        f"{script} --help failed:\n{proc.stderr[-800:]}"
+    )
+    assert "usage:" in proc.stdout.lower()
+
+
+def test_no_duplicate_cli_flags_within_a_lab():
+    """The collision above is the general case: two features each adding a flag
+    with a name that reads naturally for both."""
+    import re as _re
+
+    for script in ["labs/lab1-knowledge-layer/ask.py",
+                   "labs/lab2-live-state-agent/investigate.py",
+                   "labs/lab3-guardrails/remediate.py",
+                   "labs/lab4-evals/run_evals.py"]:
+        source = (REPO / script).read_text()
+        flags = _re.findall(r'add_argument\(\s*"(--[a-z][a-z-]*)"', source)
+        duplicates = {f for f in flags if flags.count(f) > 1}
+        assert not duplicates, f"{script} defines {sorted(duplicates)} twice"
