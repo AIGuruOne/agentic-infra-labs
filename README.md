@@ -122,7 +122,13 @@ make setup                        # tooling + venv
 cp .env.example .env              # add your ANTHROPIC_API_KEY
 make cluster                      # 3-node kind cluster, workloads, Prometheus
 make verify                       # health table, should be all-PASS
+make tour                         # what IS all this? start here
 ```
+
+**Run `make tour` before your first lab.** Every lab from there asks you to
+reason about `ml-prod`, `inference-api` and a GPU node; the tour shows you what
+those actually are, on your own cluster. It works without a cluster too — the
+runbook half is all Lab 1 needs.
 
 Then work through the labs in order:
 
@@ -204,7 +210,7 @@ this in March 2027 reproduces exactly what the recording shows.
 ## Repository layout
 
 ```
-scripts/        doctor, setup, cluster, verify
+scripts/        doctor, setup, tour, cluster, verify
 cluster/        kind config, GPU simulation, scoped agent RBAC
 workloads/      inference stub (stdlib only) + manifests
 observability/  a single Prometheus Deployment, plus metrics-server

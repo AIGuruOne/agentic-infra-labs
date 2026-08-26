@@ -2,6 +2,7 @@
 #
 #   make doctor    pre-flight check. Run this BEFORE the session. Prints your tier.
 #   make setup     installs/verifies tooling
+#   make tour      what is this cluster? what are these runbooks? start here
 #   make cluster   kind create + gpu-sim + prometheus + workloads; ends with verify
 #   make verify    health PASS/FAIL table
 #   make break-1 .. make break-7    inject a fault
@@ -16,7 +17,7 @@ CLUSTER := agentic-infra-labs
 PY      := .venv/bin/python
 KUBECTL := kubectl --context kind-$(CLUSTER)
 
-.PHONY: help doctor setup cluster verify reset clean load-stop test \
+.PHONY: help doctor setup tour cluster verify reset clean load-stop test \
         break-1 break-2 break-3 break-4 break-5 break-6 break-7 \
         lab1 lab2 lab3 lab4
 
@@ -28,6 +29,9 @@ doctor:
 
 setup:
 	@./scripts/setup.sh
+
+tour:
+	@./scripts/tour.sh
 
 cluster:
 	@./scripts/cluster.sh

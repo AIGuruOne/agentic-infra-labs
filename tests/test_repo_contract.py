@@ -764,3 +764,35 @@ def test_every_metadata_flag_is_accepted_at_runtime():
                                "--retrieval-only"],
                               capture_output=True, text=True, timeout=120)
         assert proc.returncode == 0, f"{flag} {value} failed:\n{proc.stderr[-500:]}"
+
+
+def test_tour_exists_and_orients_before_the_first_lab():
+    """Every lab asks the learner to reason about ml-prod, inference-api and a
+    GPU node. Until `make tour`, nothing in the repo said what any of those
+    were — the README's repository layout is a file listing, not a description
+    of what is deployed."""
+    tour = REPO / "scripts" / "tour.sh"
+    assert tour.exists() and os.access(tour, os.X_OK)
+
+    text = tour.read_text()
+    for topic in ["ml-prod", "ml-staging", "inference-api",
+                  "simulated GPU pool", "RB-014", "RB-009",
+                  "make reset", "MODEL_CONFIG_PATH"]:
+        assert topic in text, f"the tour never mentions {topic!r}"
+
+    assert re.search(r"^tour:", (REPO / "Makefile").read_text(), re.M), \
+        "make tour is not wired up"
+    assert "make tour" in (REPO / "README.md").read_text()
+
+
+def test_tour_runs_without_a_cluster():
+    """Tier B has no cluster and Lab 1 needs none, so the orientation they can
+    actually use — the runbook corpus — must still print."""
+    import subprocess
+
+    proc = subprocess.run([str(REPO / "scripts" / "tour.sh")],
+                          capture_output=True, text=True, timeout=180,
+                          env={**os.environ, "KUBECONFIG": "/nonexistent"})
+    assert proc.returncode == 0, proc.stderr[-600:]
+    assert "RB-014" in proc.stdout and "RB-009" in proc.stdout
+    assert "Lab 1 needs no cluster" in proc.stdout
