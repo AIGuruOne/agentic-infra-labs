@@ -1006,10 +1006,20 @@ def test_glossary_claims_resolve():
 
     text = (REPO / "GLOSSARY.md").read_text()
 
+    # Runtime artefacts are named by the glossary as concepts and are
+    # deliberately gitignored — audit.jsonl does not exist until the agent makes
+    # its first tool call. Requiring them to be present passes on a machine that
+    # has run the labs and fails on a fresh clone, which is exactly backwards.
+    ignored = (REPO / ".gitignore").read_text().split()
+
     for path in set(re.findall(r"`([a-zA-Z0-9_/.-]+\.(?:py|md|sh|yaml|json|jsonl))`", text)) | \
                 set(re.findall(r"`(/[a-z/]+)`", text)):
         candidate = REPO / path.lstrip("/")
-        assert candidate.exists(), f"GLOSSARY.md names {path}, which does not exist"
+        if candidate.exists():
+            continue
+        assert any(path.endswith(pat.lstrip("*/")) or pat.rstrip("/") == path
+                   for pat in ignored), \
+            f"GLOSSARY.md names {path}, which does not exist and is not a known runtime artefact"
 
     helps = ""
     for script in ["labs/lab1-knowledge-layer/ask.py",
