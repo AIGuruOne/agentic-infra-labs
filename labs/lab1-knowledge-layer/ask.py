@@ -92,9 +92,16 @@ def build_prompt(question: str, hits: list[Hit], *, metadata_aware: bool) -> str
 def main() -> int:
     ap = argparse.ArgumentParser(description="Lab 1 — metadata-filtered runbook retrieval")
     ap.add_argument("question")
+    # One flag per filterable frontmatter field. Each is an axis along which a
+    # lexically perfect match can still be the wrong document.
     ap.add_argument("--environment", help="prod | staging | dev")
+    ap.add_argument("--cluster")
     ap.add_argument("--namespace")
     ap.add_argument("--service")
+    ap.add_argument("--model")
+    ap.add_argument("--gpu-type", dest="gpu_type")
+    ap.add_argument("--provider")
+    ap.add_argument("--region")
     ap.add_argument(
         "--no-metadata-filter",
         action="store_true",
@@ -110,14 +117,11 @@ def main() -> int:
 
     use_filter = not args.no_metadata_filter
     corpus = load_corpus()
+    from retrieval import FILTERABLE_FIELDS
+    constraints = {f: getattr(args, f, None) for f in FILTERABLE_FIELDS}
     hits = search(
-        args.question,
-        corpus,
-        environment=args.environment,
-        namespace=args.namespace,
-        service=args.service,
-        use_metadata_filter=use_filter,
-        top_k=args.rank_k,
+        args.question, corpus,
+        use_metadata_filter=use_filter, top_k=args.rank_k, **constraints,
     )
 
     print(f"\n{BOLD}question{RESET} {args.question}")

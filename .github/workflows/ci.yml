@@ -1,0 +1,125 @@
+# Runs on every push and pull request.
+#
+# Scope: /labs and everything the canonical path depends on. It deliberately
+# does NOT touch /alt/langgraph — that is a frozen reference port with its own
+# pinned dependency set, and testing it here would either drag langchain into
+# this job or start a maintenance obligation the port explicitly does not have.
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  tests:
+    name: lint + unit tests
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # The full supported range. 3.14 is excluded on purpose: the pinned
+        # kubernetes and mcp wheels have no 3.14 build.
+        python-version: ["3.11", "3.12", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+
+      - name: Install pinned dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Syntax check every shipped script
+        run: |
+          python -m compileall -q agent mcp labs tests
+          for s in scripts/*.sh scripts/lib/*.sh faults/*.sh cluster/gpu-sim/*.sh; do
+            bash -n "$s" || exit 1
+          done
+
+      - name: Validate manifests
+        run: |
+          python - <<'PY'
+          import pathlib, yaml
+          for p in list(pathlib.Path("workloads/manifests").glob("*.yaml")) + [
+              pathlib.Path("observability/prometheus.yaml"),
+              pathlib.Path("cluster/rbac/agent-sa.yaml"),
+              pathlib.Path("cluster/kind-config.yaml"),
+          ]:
+              list(yaml.safe_load_all(p.read_text()))
+              print(f"ok {p}")
+          PY
+
+      # No cluster, no Docker, no API key. Every test here is static, AST-level,
+      # or offline retrieval — which is what makes them worth running on push.
+      - name: Unit tests
+        run: python -m pytest -q
+
+  cluster-smoke:
+    name: cluster smoke (kind)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - run: pip install -r requirements.txt
+
+      - name: Install kind
+        run: |
+          curl -sSLo /usr/local/bin/kind \
+            https://kind.sigs.k8s.io/dl/v0.32.0/kind-linux-amd64
+          chmod +x /usr/local/bin/kind
+          kind version
+
+      - name: Build the cluster
+        run: ./scripts/cluster.sh
+
+      - name: Inject all seven faults, then reset once
+        run: |
+          for i in 1 2 3 4 5 6 7; do ./faults/break-$i.sh; done
+          ./faults/reset.sh
+
+      # The agent loop, exercised without spending money or needing a secret.
+      # Proves the MCP servers start, the tools are discovered and callable
+      # against a real cluster, and the retrieval layer answers — everything
+      # except the model call itself.
+      - name: MCP servers and retrieval, no LLM
+        run: |
+          python - <<'PY'
+          import asyncio, sys
+          sys.path.insert(0, ".")
+          sys.path.insert(0, "labs/lab1-knowledge-layer")
+          from agent.tools import ToolRegistry
+          from retrieval import load_corpus, search
+
+          hits = search("why are prod inference pods repeatedly restarting?",
+                        load_corpus(), environment="prod", namespace="ml-prod")
+          assert hits[0].runbook.id == "RB-014", [h.runbook.id for h in hits]
+          print("retrieval ok:", hits[0].runbook.id)
+
+          async def main():
+              async with ToolRegistry() as r:
+                  assert len(r.definitions) == 12, len(r.definitions)
+                  pods = await r.call("list_pods", {"namespace": "ml-prod"})
+                  assert "inference-api" in pods, pods
+                  nodes = await r.call("get_nodes", {})
+                  assert "nvidia.com/gpu=2" in nodes, nodes
+                  print("mcp ok:", len(r.definitions), "tools")
+          asyncio.run(main())
+          PY
+
+      - name: Teardown
+        if: always()
+        run: kind delete cluster --name agentic-infra-labs || true

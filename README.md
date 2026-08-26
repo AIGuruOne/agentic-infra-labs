@@ -98,7 +98,8 @@ without rebuilding. `make clean` deletes the cluster.
 ## The four labs
 
 **Lab 1 — the knowledge layer.** BM25 over 14 runbooks with a hard pre-filter on
-frontmatter metadata. Run the same question with and without the filter and get
+frontmatter metadata — environment, cluster, namespace, service, model, GPU
+type, provider and region, each its own CLI flag. Run the same question with and without the filter and get
 two different runbooks with two different remediations, one of which causes an
 outage. This is the shortest path to understanding why retrieval quality is not
 a ranking problem.

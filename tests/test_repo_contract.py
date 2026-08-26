@@ -487,3 +487,78 @@ def test_no_placeholder_licence_text_ships():
     for phrase in ("note for the repository owner", "counsel-approved",
                    "replace it with", "placeholder", "todo"):
         assert phrase not in licence, f"LICENSE.md still contains placeholder text: {phrase!r}"
+
+
+def test_ci_exists_because_the_syllabus_promises_it():
+    """"The complete lab repository — version-pinned, CI-tested" is a takeaway
+    on the syllabus. It has to be true."""
+    workflows = REPO / ".github" / "workflows"
+    assert (workflows / "ci.yml").exists()
+    assert (workflows / "weekly.yml").exists()
+
+
+def test_ci_never_touches_the_frozen_port():
+    """Build-spec constraint: CI runs against /labs only, never /alt. Testing
+    the port here would either drag langchain into the job or create a
+    maintenance obligation the port explicitly disclaims."""
+    for name in ("ci.yml", "weekly.yml"):
+        text = (REPO / ".github" / "workflows" / name).read_text()
+        for line in text.splitlines():
+            stripped = line.strip()
+            if stripped.startswith("#"):
+                continue          # prose explaining the exclusion is fine
+            assert "alt/langgraph" not in stripped, f"{name} references the frozen port"
+
+
+def test_ci_tests_the_full_supported_python_range():
+    """doctor.sh and setup.sh accept 3.11-3.13. CI must actually prove all
+    three, or the range is an untested claim."""
+    import yaml as _yaml
+
+    ci = _yaml.safe_load((REPO / ".github" / "workflows" / "ci.yml").read_text())
+    versions = ci["jobs"]["tests"]["strategy"]["matrix"]["python-version"]
+    assert set(versions) == {"3.11", "3.12", "3.13"}, versions
+
+
+def test_every_advertised_metadata_field_is_filterable():
+    """The syllabus promises retrieval aware of "environment, cluster,
+    namespace, service, model, GPU type, provider, and region". Only three of
+    the eight were wired up; the other five sat in the frontmatter unused."""
+    import sys as _sys
+
+    _sys.path.insert(0, str(REPO / "labs" / "lab1-knowledge-layer"))
+    from retrieval import FILTERABLE_FIELDS, load_corpus, search
+
+    advertised = {"environment", "cluster", "namespace", "service",
+                  "model", "gpu_type", "provider", "region"}
+    assert advertised == set(FILTERABLE_FIELDS), \
+        f"advertised but not filterable: {sorted(advertised - set(FILTERABLE_FIELDS))}"
+
+    corpus = load_corpus()
+    for field in FILTERABLE_FIELDS:
+        assert field in corpus[0].meta, f"{field} is filterable but absent from frontmatter"
+
+        # Filtering on a value nothing declares must exclude every runbook that
+        # states a concrete value for that field. Runbooks with `null` survive
+        # on purpose — null means "applies regardless", and dropping them would
+        # be worse than not filtering, since most runbooks are not GPU-specific.
+        survivors = search("anything", corpus, top_k=99, **{field: "__nonexistent__"})
+        for hit in survivors:
+            assert hit.runbook.meta.get(field) is None, (
+                f"filtering {field}=__nonexistent__ kept {hit.runbook.id}, which "
+                f"declares {field}={hit.runbook.meta.get(field)!r}"
+            )
+
+
+def test_unknown_filter_field_is_rejected_loudly():
+    """A typo'd constraint that silently returns the unfiltered corpus is the
+    worst possible failure for this particular filter."""
+    import sys as _sys
+
+    import pytest as _pytest
+
+    _sys.path.insert(0, str(REPO / "labs" / "lab1-knowledge-layer"))
+    from retrieval import apply_metadata_filter, load_corpus
+
+    with _pytest.raises(ValueError):
+        apply_metadata_filter(load_corpus(), environmnet="prod")

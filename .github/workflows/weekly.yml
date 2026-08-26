@@ -1,0 +1,132 @@
+# Weekly full-cluster exercise.
+#
+# The point is evergreen-ness, not coverage: this repo is sold with a promise
+# that a buyer in March 2027 reproduces what the August 2026 recording shows.
+# Base images move, kind moves, the Kubernetes API moves. This job is how that
+# promise gets checked while nobody is looking.
+#
+# Like ci.yml, it never touches /alt/langgraph.
+name: weekly
+
+on:
+  schedule:
+    - cron: "17 4 * * 1"   # Mondays, 04:17 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  full-cluster:
+    name: cluster + all seven faults + agent (mocked LLM)
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: pip install -r requirements.txt
+
+      - name: Install kind
+        run: |
+          curl -sSLo /usr/local/bin/kind \
+            https://kind.sigs.k8s.io/dl/v0.32.0/kind-linux-amd64
+          chmod +x /usr/local/bin/kind
+
+      - run: ./scripts/cluster.sh
+
+      # Each fault individually, with a reset between, so a failure names the
+      # scenario that broke rather than "something in the cluster".
+      - name: Every fault, one at a time
+        run: |
+          for i in 1 2 3 4 5 6 7; do
+            echo "::group::break-$i"
+            ./faults/break-$i.sh
+            ./faults/reset.sh
+            echo "::endgroup::"
+          done
+
+      - name: All seven at once, then a single reset
+        run: |
+          for i in 1 2 3 4 5 6 7; do ./faults/break-$i.sh; done
+          ./faults/reset.sh
+
+      - name: Agent tool surface against a live cluster
+        run: |
+          python - <<'PY'
+          import asyncio, sys
+          sys.path.insert(0, ".")
+          from agent.tools import ToolRegistry
+
+          async def main():
+              async with ToolRegistry() as r:
+                  for name, args in [
+                      ("list_pods", {"namespace": "ml-prod"}),
+                      ("get_events", {"namespace": "ml-prod"}),
+                      ("list_deployments", {"namespace": "ml-prod"}),
+                      ("get_hpa", {"namespace": "ml-prod"}),
+                      ("get_nodes", {}),
+                      ("list_services", {}),
+                      ("query", {"promql": "up"}),
+                      ("list_metrics", {"match": "inference"}),
+                  ]:
+                      out = await r.call(name, args)
+                      assert not out.startswith("ERROR"), f"{name}: {out[:200]}"
+                      print(f"ok {name}")
+          asyncio.run(main())
+          PY
+
+      - run: python -m pytest -q
+
+      - name: Teardown
+        if: always()
+        run: kind delete cluster --name agentic-infra-labs || true
+
+  live-llm:
+    name: live LLM smoke (gated on a repo secret)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    # Skipped entirely when the secret is absent, so a fork's weekly run does
+    # not fail on a credential it was never going to have.
+    if: ${{ github.repository == 'AIGuruOne/agentic-infra-labs' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: pip install -r requirements.txt
+
+      - name: Skip if no key configured
+        id: gate
+        run: |
+          if [ -z "${{ secrets.ANTHROPIC_API_KEY }}" ]; then
+            echo "run=false" >> "$GITHUB_OUTPUT"
+            echo "No ANTHROPIC_API_KEY secret; skipping."
+          else
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Install kind
+        if: steps.gate.outputs.run == 'true'
+        run: |
+          curl -sSLo /usr/local/bin/kind \
+            https://kind.sigs.k8s.io/dl/v0.32.0/kind-linux-amd64
+          chmod +x /usr/local/bin/kind
+
+      - name: Cluster + scenario 01 end to end
+        if: steps.gate.outputs.run == 'true'
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: |
+          ./scripts/cluster.sh
+          ./faults/break-1.sh
+          sleep 30
+          python labs/lab2-live-state-agent/investigate.py --scenario 1 | tee /tmp/out.txt
+          grep -q "RB-014" /tmp/out.txt || { echo "agent did not cite RB-014"; exit 1; }
+
+      - name: Teardown
+        if: always()
+        run: kind delete cluster --name agentic-infra-labs || true
