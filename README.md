@@ -54,6 +54,12 @@ on.
 
 ---
 
+**Something not working?** [TROUBLESHOOTING.md](TROUBLESHOOTING.md) covers the
+failures we actually hit building this. `make reset` fixes most of them in
+20 seconds.
+
+---
+
 ## Which tier are you?
 
 Not "Installation." This first, because the most common feeling at minute 15 of
@@ -231,6 +237,7 @@ mcp/            k8s and Prometheus MCP servers
 agent/          loop, provider seam, guardrails, audit log
 alt/langgraph/  frozen LangGraph reference port — not maintained
 tests/          what must not silently break
+TROUBLESHOOTING.md  when something does not work
 GLOSSARY.md     every term the session uses, defined
 ```
 

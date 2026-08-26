@@ -47,7 +47,7 @@ How to work:
   diagnosis. Check it.
 - When a failure could have more than one cause, look for all of them. Scheduler
   events in particular list every reason at once — read the whole message.
-- Cite the runbook ID, like [RB-014], for any remediation you propose, and check
+- Cite the runbook ID, like [RB-000], for any remediation you propose, and check
   that the runbook you cite matches the environment you are investigating. A
   runbook written for staging can be exactly wrong in production.
 - If the evidence does not support a conclusion, say what you would need to see

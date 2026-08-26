@@ -5,6 +5,7 @@
 #   make tour      what is this cluster? what are these runbooks? start here
 #   make cluster   kind create + gpu-sim + prometheus + workloads; ends with verify
 #   make verify    health PASS/FAIL table
+#   make preflight exercise the real demo path — run this before going live
 #   make break-1 .. make break-7    inject a fault
 #   make reset     back to a healthy baseline without a full rebuild
 #   make clean     delete the cluster
@@ -17,7 +18,7 @@ CLUSTER := agentic-infra-labs
 PY      := .venv/bin/python
 KUBECTL := kubectl --context kind-$(CLUSTER)
 
-.PHONY: help doctor setup tour cluster verify reset clean load-stop test record \
+.PHONY: help doctor setup tour cluster verify preflight reset clean load-stop test record \
         lab1 lab2 lab3 lab4
 
 # NOTE: break-1..break-7 are deliberately NOT in .PHONY.
@@ -53,6 +54,9 @@ cluster:
 
 verify:
 	@./scripts/verify.sh
+
+preflight:
+	@./scripts/preflight.sh $(ARGS)
 
 reset:
 	@./faults/reset.sh

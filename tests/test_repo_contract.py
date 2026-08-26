@@ -947,3 +947,51 @@ def test_every_make_target_invokes_something():
             f"make {target} is a no-op"
         body = "\n".join(l for l in proc.stdout.splitlines() if not l.startswith("make["))
         assert body.strip(), f"make {target} would run nothing at all"
+
+
+def test_preflight_exercises_behaviour_not_just_health():
+    """`make verify` passed while `make break-N` was a no-op, while reset left
+    CPU_BURN_MS on forever, and while Lab 1's CLI raised on startup. A health
+    check that cannot detect those is not a pre-session check.
+
+    preflight must run the actual commands and match on their actual output.
+    """
+    src = (REPO / "scripts" / "preflight.sh").read_text()
+
+    for behaviour in ["make break-1", "make reset", "CPU_BURN_MS=0",
+                      "RB-014", "RB-009", "cannot list resource",
+                      "7/7 real cases passed"]:
+        assert behaviour in src, f"preflight does not check {behaviour!r}"
+
+    # It must strip ANSI, or every match on a coloured lab output is a false
+    # negative — which this script produced on its first run.
+    assert "strip_ansi" in src
+
+    # And it must be able to skip paid calls, or nobody will run it twice.
+    assert "--quick" in src
+    assert re.search(r"^preflight:", (REPO / "Makefile").read_text(), re.M)
+
+
+def test_troubleshooting_covers_the_failures_we_actually_hit():
+    """Written from real failures, not imagined ones."""
+    doc = (REPO / "TROUBLESHOOTING.md").read_text().lower()
+    for symptom in ["3.14", "tier b", "modulenotfounderror", "nocredentials",
+                    "imagepullbackoff", "prometheus", "non-deterministic",
+                    "12 iterations", "make reset"]:
+        assert symptom in doc, f"TROUBLESHOOTING.md does not cover {symptom!r}"
+    assert "TROUBLESHOOTING.md" in (REPO / "README.md").read_text()
+
+
+def test_prompts_do_not_name_a_real_runbook_as_the_citation_example():
+    """The system prompts used `[RB-014]` to show citation format — and RB-014
+    is the correct answer to the headline scenario. Even if it changed nothing
+    measurable, an example that names the expected answer is a thumb on the
+    scale in material people paid for."""
+    corpus_ids = {p.name.split("-")[0] + "-" + p.name.split("-")[1]
+                  for p in (REPO / "runbooks").glob("RB-*.md")}
+    for path in [REPO / "agent" / "loop.py",
+                 REPO / "labs" / "lab1-knowledge-layer" / "ask.py"]:
+        text = path.read_text()
+        for rid in corpus_ids:
+            assert f"[{rid}]" not in text, \
+                f"{path.name} uses {rid}, a real runbook, as the citation example"
