@@ -41,7 +41,12 @@ wait_for() {
   [ "$announced" = 1 ] && printf "\n" >&2
   printf "${BOLD}warning:${RESET} %s did not appear within %ss — the agent may not see it yet\n" \
     "$what" "$timeout" >&2
-  return 1
+
+  # Always succeed. The fault IS injected by this point; the wait is a
+  # convenience so that chaining `break-N && lab2` is not a race. Returning
+  # non-zero here aborted the whole script under `set -e` and failed CI on a
+  # slow runner, which is a much worse outcome than a late metric.
+  return 0
 }
 
 announce() { # announce <what was injected> <question to ask>

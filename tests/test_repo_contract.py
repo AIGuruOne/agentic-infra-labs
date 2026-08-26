@@ -904,4 +904,9 @@ def test_break_scripts_wait_for_their_own_symptom():
     # break-4 is the slow one: the metric window has to move, ~60s.
     four = (REPO / "faults" / "break-4.sh").read_text()
     timeout = int(re.search(r"wait_for (\d+)", four).group(1))
-    assert timeout >= 120, f"break-4 allows only {timeout}s; the p95 step needs ~60s"
+    assert timeout >= 180, f"break-4 allows only {timeout}s; a CI runner is slower than a Mac"
+
+    # A slow metric must never abort the script — the fault is already injected.
+    lib_src = (REPO / "faults" / "lib.sh").read_text()
+    assert "return 0" in lib_src.split("warning:")[1], \
+        "wait_for returns non-zero on timeout, which aborts the break under set -e"

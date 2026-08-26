@@ -70,7 +70,20 @@ fi
 
 # --------------------------------------------------------------------------
 h "The runbook corpus — 14 markdown files in runbooks/"
-.venv/bin/python - <<'PY' 2>/dev/null || echo "  (run 'make setup' to read the corpus)"
+# Prefer the repo's venv, but fall back to whatever python can import the
+# corpus. CI installs dependencies system-wide and so do plenty of people;
+# hardcoding .venv made this entire section vanish for them, silently.
+TOUR_PY=""
+for candidate in .venv/bin/python python3 python; do
+  if "$candidate" -c "import yaml, rank_bm25" >/dev/null 2>&1; then
+    TOUR_PY="$candidate"; break
+  fi
+done
+
+if [ -z "$TOUR_PY" ]; then
+  echo "  (run 'make setup' to read the corpus)"
+else
+"$TOUR_PY" - <<'CORPUS' 
 import sys; sys.path.insert(0, "labs/lab1-knowledge-layer")
 from retrieval import load_corpus
 books = load_corpus()
@@ -87,7 +100,8 @@ for rid in ("RB-014", "RB-009"):
     print(f"    {rid}  environment={b.environment:<8} {b.title}")
 print("  Same title. Same symptom. Opposite remediations. Neither body text")
 print("  mentions its own environment — only the frontmatter knows.")
-PY
+CORPUS
+fi
 note "  They are written for this lab, not scraped from anywhere. Read one:"
 note "    less runbooks/RB-014-model-server-crashloop-prod.md"
 
