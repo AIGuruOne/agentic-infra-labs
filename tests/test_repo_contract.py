@@ -367,3 +367,27 @@ def test_documented_tool_count_matches_reality():
     assert int(claimed.group(1)) == live, (
         f"README claims {claimed.group(1)} tools; the servers register {live}"
     )
+
+
+def test_glossary_promises_no_flag_that_does_not_exist():
+    """The glossary is read by attendees who will then type what it mentions.
+    An earlier draft said dense retrieval was "available behind --dense"; the
+    flag does not exist and argparse rejects it."""
+    import subprocess
+    import sys
+
+    glossary = (REPO / "GLOSSARY.md").read_text()
+    flags = set(re.findall(r"`(--[a-z-]+)`", glossary))
+    if not flags:
+        return
+
+    helps = ""
+    for script in ["labs/lab1-knowledge-layer/ask.py",
+                   "labs/lab2-live-state-agent/investigate.py",
+                   "labs/lab3-guardrails/remediate.py",
+                   "labs/lab4-evals/run_evals.py"]:
+        helps += subprocess.run([sys.executable, str(REPO / script), "--help"],
+                                capture_output=True, text=True).stdout
+
+    for flag in flags:
+        assert flag in helps, f"GLOSSARY.md mentions {flag}, which no lab accepts"

@@ -151,6 +151,7 @@ labs/           the four labs, each with an EXPECTED.md
 mcp/            k8s and Prometheus MCP servers
 agent/          loop, provider seam, guardrails, audit log
 tests/          what must not silently break
+GLOSSARY.md     every term the session uses, defined
 ```
 
 ---
@@ -169,6 +170,16 @@ cheaper and handles most scenarios. Full breakdown in [VERSIONS.md](VERSIONS.md)
 
 The OpenAI path is a real, tested fallback rather than an aspiration — run any
 lab with `--provider openai`. It is not what the session teaches.
+
+---
+
+## Glossary
+
+[GLOSSARY.md](GLOSSARY.md) defines every term the session uses without stopping
+to explain it — context window, grounding, BM25, MCP, tool calling, xfail. The
+Kubernetes and observability terms are assumed; the AI terms are not. Written so
+that someone arriving from the recording with a different background can follow
+the whole session.
 
 ---
 
