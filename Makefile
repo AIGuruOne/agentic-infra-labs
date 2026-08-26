@@ -60,13 +60,17 @@ test:
 	@$(PY) -m pytest
 
 lab1:
+	@printf "\033[2m  instructions: labs/lab1-knowledge-layer/LAB.md   expected output: labs/lab1-knowledge-layer/EXPECTED.md\033[0m\n"
 	@$(PY) labs/lab1-knowledge-layer/ask.py $(ARGS)
 
 lab2:
+	@printf "\033[2m  instructions: labs/lab2-live-state-agent/LAB.md   expected output: labs/lab2-live-state-agent/EXPECTED.md\033[0m\n"
 	@$(PY) labs/lab2-live-state-agent/investigate.py $(ARGS)
 
 lab3:
+	@printf "\033[2m  instructions: labs/lab3-guardrails/LAB.md   expected output: labs/lab3-guardrails/EXPECTED.md\033[0m\n"
 	@$(PY) labs/lab3-guardrails/remediate.py $(ARGS)
 
 lab4:
+	@printf "\033[2m  instructions: labs/lab4-evals/LAB.md   expected output: labs/lab4-evals/EXPECTED.md\033[0m\n"
 	@$(PY) labs/lab4-evals/run_evals.py $(ARGS)

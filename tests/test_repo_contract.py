@@ -822,3 +822,34 @@ def test_record_helper_resets_before_every_take():
     assert "reset.sh" in script
     assert script.count("prep") >= 4, "not every branch resets first"
     assert re.search(r"^record:", (REPO / "Makefile").read_text(), re.M)
+
+
+def test_every_lab_has_actionable_instructions():
+    """Learners spend 32 and 46 minutes working unattended. Until LAB.md they
+    had four bullets on a slide that had already moved on, and an EXPECTED.md
+    that documents output rather than tasks."""
+    import re as _re
+
+    for lab in sorted(p for p in (REPO / "labs").iterdir() if p.is_dir()):
+        doc = lab / "LAB.md"
+        assert doc.exists(), f"{lab.name} has no LAB.md"
+        text = doc.read_text()
+
+        steps = _re.findall(r"^## \d+ · ", text, _re.M)
+        assert len(steps) >= 3, f"{lab.name}/LAB.md has {len(steps)} numbered tasks"
+
+        assert "You should see" in text, \
+            f"{lab.name}/LAB.md never says what success looks like"
+        assert "doesn't work" in text or "don't work" in text, \
+            f"{lab.name}/LAB.md has no troubleshooting section"
+        assert "```bash" in text, f"{lab.name}/LAB.md has no runnable commands"
+
+
+def test_lab_instructions_are_discoverable():
+    """An instruction file nobody finds is no instruction file."""
+    makefile = (REPO / "Makefile").read_text()
+    readme = (REPO / "README.md").read_text()
+    for n in (1, 2, 3, 4):
+        assert f"LAB.md" in makefile, "make labN does not print the instructions path"
+    assert "LAB.md" in readme, "README does not mention LAB.md"
+    assert "what to do" in readme.lower()

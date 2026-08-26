@@ -164,6 +164,16 @@ cluster-admin rights anywhere, or any prior AI or ML experience.
 
 ## The four labs
 
+Each lab folder has two files:
+
+| | |
+|---|---|
+| **`LAB.md`** | **what to do** — numbered tasks, the commands, and what you should see |
+| `EXPECTED.md` | what it looks like when it works, with the reasoning explained |
+
+Open `LAB.md` and work down it. `make lab1` and friends print the paths too.
+
+
 **Lab 1 — the knowledge layer.** BM25 over 14 runbooks with a hard pre-filter on
 frontmatter metadata — environment, cluster, namespace, service, model, GPU
 type, provider and region, each its own CLI flag. Run the same question with and
@@ -216,7 +226,7 @@ workloads/      inference stub (stdlib only) + manifests
 observability/  a single Prometheus Deployment, plus metrics-server
 runbooks/       14 markdown runbooks with YAML frontmatter
 faults/         break-1..7 and reset
-labs/           the four labs, each with an EXPECTED.md
+labs/           the four labs · LAB.md (what to do) + EXPECTED.md (what you'll see)
 mcp/            k8s and Prometheus MCP servers
 agent/          loop, provider seam, guardrails, audit log
 alt/langgraph/  frozen LangGraph reference port — not maintained
