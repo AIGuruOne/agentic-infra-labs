@@ -308,3 +308,62 @@ def test_readme_bringup_time_matches_versions():
     readme = (REPO / "README.md").read_text()
     assert "~45 seconds" not in readme, \
         "README still claims the reuse time (45s) for the from-clean path"
+
+
+def test_setup_does_not_abort_without_docker():
+    """The README's central Tier B promise is that Lab 1 needs nothing but
+    Python. setup.sh used to `die` the moment Docker was unreachable — before
+    creating the venv — so the very attendee the error message was reassuring
+    ended up with no rank_bm25 and no PyYAML, and Lab 1 could not run at all.
+
+    Docker must be a warning here, and the venv must still be built.
+    """
+    source = (REPO / "scripts" / "setup.sh").read_text()
+
+    docker_section = source[source.index('say "docker"'):source.index('say "python"')]
+    assert "die " not in docker_section, \
+        "setup.sh aborts when Docker is missing; Tier B never reaches the venv step"
+    assert "warn " in docker_section, "a missing Docker should warn, not pass silently"
+
+    # The venv must be created after the Docker check, not gated behind it.
+    assert source.index('say "python"') > source.index('say "docker"')
+    assert "-m venv .venv" in source
+
+
+def test_lab1_imports_need_no_cluster_libraries():
+    """Lab 1's promise is Python-only. If it ever imports the kubernetes client
+    or the MCP SDK at module scope, a Tier B attendee gets an ImportError
+    instead of a lesson."""
+    import ast as _ast
+
+    for path in [REPO / "labs" / "lab1-knowledge-layer" / "retrieval.py",
+                 REPO / "labs" / "lab1-knowledge-layer" / "ask.py"]:
+        tree = _ast.parse(path.read_text())
+        for node in _ast.walk(tree):
+            if isinstance(node, (_ast.Import, _ast.ImportFrom)):
+                # module-scope imports only
+                names = [a.name for a in node.names] if isinstance(node, _ast.Import) \
+                    else [node.module or ""]
+                for name in names:
+                    assert not name.startswith(("kubernetes", "mcp")), \
+                        f"{path.name} imports {name}, which Lab 1 must not require"
+
+
+def test_documented_tool_count_matches_reality():
+    """The README, the deck and Lab 2's EXPECTED.md all state a tool count.
+    Unregistering get_resource_quota during review made every one of them wrong,
+    and nothing complained."""
+    import re as _re
+
+    k8s = (REPO / "mcp" / "k8s_mcp.py").read_text()
+    prom = (REPO / "mcp" / "prom_mcp.py").read_text()
+    # a live tool is a @server.tool() that is not commented out
+    live = sum(1 for src in (k8s, prom)
+               for ln in src.splitlines() if ln.strip() == "@server.tool()")
+
+    readme = (REPO / "README.md").read_text()
+    claimed = _re.search(r"Prometheus, (\d+) tools\)", readme)
+    assert claimed, "README no longer states a tool count"
+    assert int(claimed.group(1)) == live, (
+        f"README claims {claimed.group(1)} tools; the servers register {live}"
+    )

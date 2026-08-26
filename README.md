@@ -27,7 +27,7 @@ You can run everything live. Before the session:
 
 ```bash
 make setup       # installs kind, kubectl, and a Python venv
-make cluster     # ~1m30s from clean on an M-series Mac, under 5 minutes anywhere
+make cluster     # ~1m41s from clean on an M-series Mac, under 5 minutes anywhere
 ```
 
 ### Tier B — no Docker on this machine
@@ -104,7 +104,7 @@ outage. This is the shortest path to understanding why retrieval quality is not
 a ranking problem.
 
 **Lab 2 — the agent meets the cluster.** Two MCP servers (Kubernetes and
-Prometheus, 13 tools) and a raw agent loop against the Messages API. No
+Prometheus, 12 tools) and a raw agent loop against the Messages API. No
 framework. The loop is about forty lines and prints every step as it happens,
 because on a screen share the loop being visible is the lesson.
 

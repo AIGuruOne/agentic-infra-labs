@@ -5,9 +5,10 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-BOLD=$'\033[1m'; DIM=$'\033[2m'; RESET=$'\033[0m'; GREEN=$'\033[32m'
+BOLD=$'\033[1m'; DIM=$'\033[2m'; RESET=$'\033[0m'; GREEN=$'\033[32m'; YELLOW=$'\033[33m'
 say()  { printf "${BOLD}==>${RESET} %s\n" "$1"; }
 ok()   { printf "    ${GREEN}ok${RESET} ${DIM}%s${RESET}\n" "$1"; }
+warn() { printf "    ${YELLOW}!${RESET}  %s\n" "$1"; }
 die()  { printf "\n\033[31mFAILED:\033[0m %s\n\n" "$1" >&2; exit 1; }
 
 KIND_VERSION="v0.32.0"
@@ -34,8 +35,12 @@ else
       ;;
     *) die "unsupported OS $(uname -s). On Windows, run this inside WSL2." ;;
   esac
-  command -v kind >/dev/null 2>&1 || die "kind install did not land on PATH"
-  ok "installed $(kind version | awk '{print $2}')"
+  if command -v kind >/dev/null 2>&1; then
+    ok "installed $(kind version | awk '{print $2}')"
+  else
+    warn "kind did not land on PATH — you will not be able to run a cluster."
+    warn "Lab 1 does not need one; continuing."
+  fi
 fi
 
 # --- kubectl ----------------------------------------------------------------
@@ -56,12 +61,21 @@ else
 fi
 
 # --- docker -----------------------------------------------------------------
+# A missing Docker is a WARNING, not a failure.
+#
+# This used to `die` here, which meant a Tier B attendee — the exact person the
+# error message was reassuring — never reached the venv step below, so they had
+# no rank_bm25 and no PyYAML, and Lab 1 could not run at all. The README
+# promises Lab 1 needs nothing but Python. This is what makes that true.
 say "docker"
-docker info >/dev/null 2>&1 || die "Docker daemon is not reachable. Start Docker Desktop, then re-run.
-       If Docker is not permitted on this machine, that is fine — you are Tier B.
-       Run ./scripts/doctor.sh to confirm, follow the session on screen, and run
-       the labs later. Nothing expires."
-ok "daemon reachable ($(docker version --format '{{.Server.Version}}'))"
+DOCKER_OK=0
+if docker info >/dev/null 2>&1; then
+  ok "daemon reachable ($(docker version --format '{{.Server.Version}}'))"
+  DOCKER_OK=1
+else
+  warn "Docker is not reachable — skipping cluster tooling."
+  warn "That is fine: continuing so Lab 1 works, which needs only Python."
+fi
 
 # --- python venv ------------------------------------------------------------
 say "python"
@@ -95,4 +109,12 @@ else
 fi
 
 echo
-printf "${GREEN}${BOLD}setup complete.${RESET} Next: ${BOLD}make cluster${RESET}\n\n"
+if [ "$DOCKER_OK" = 1 ]; then
+  printf "${GREEN}${BOLD}setup complete.${RESET} Next: ${BOLD}make cluster${RESET}\n\n"
+else
+  printf "${GREEN}${BOLD}setup complete${RESET} (without cluster tooling — you are Tier B).\n\n"
+  printf "  Lab 1 works right now and needs no Docker:\n\n"
+  printf "    ${BOLD}make lab1 ARGS='\"why are prod inference pods repeatedly restarting?\" --environment prod --namespace ml-prod'${RESET}\n\n"
+  printf "  ${DIM}Labs 2-4 need a cluster. Follow those on screen and run them later\n"
+  printf "  from a machine that allows Docker. Nothing expires.${RESET}\n\n"
+fi

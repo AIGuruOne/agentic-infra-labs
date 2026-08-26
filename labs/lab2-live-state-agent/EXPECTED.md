@@ -24,7 +24,7 @@ runbooks retrieved (filter ON)
   RB-014  score  4.99  environment=prod  Model server crashloop after config change
   RB-013  score  2.92  environment=prod  Model server OOMKilled under batch load
 
-model: claude-opus-5 · tools: 13 · max 12 iterations
+model: claude-opus-5 · tools: 12 · max 12 iterations
 
   -> list_pods(namespace='ml-prod')
      inference-api-6744969cc9-5bxkx  phase=Running  ready=0/1  restarts=6  waiting=CrashLoopBackOff
