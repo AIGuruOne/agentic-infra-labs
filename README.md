@@ -149,6 +149,19 @@ reason about `ml-prod`, `inference-api` and a GPU node; the tour shows you what
 those actually are, on your own cluster. It works without a cluster too — the
 runbook half is all Lab 1 needs.
 
+### Optional: the same shortcuts the instructor uses
+
+```bash
+source scripts/shortcuts.sh
+```
+
+Gives you `k1`, `s1`, `rbac`, `ev` and friends. **Each one prints the real
+command before it runs it**, so when you see a short name on the screen share
+you can see exactly what it expanded to. Nothing is hidden behind a shortcut —
+type the long form any time.
+
+---
+
 Then work through the labs in order:
 
 ```bash
@@ -239,7 +252,7 @@ this in March 2027 reproduces exactly what the recording shows.
 ## Repository layout
 
 ```
-scripts/        doctor, setup, tour, cluster, verify
+scripts/        doctor, setup, tour, cluster, verify, shortcuts
 cluster/        kind config, GPU simulation, scoped agent RBAC
 workloads/      inference stub (stdlib only) + manifests
 observability/  a single Prometheus Deployment, plus metrics-server

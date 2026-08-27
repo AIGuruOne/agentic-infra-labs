@@ -1105,3 +1105,36 @@ def test_setup_guide_matches_what_the_scripts_do():
         "SETUP.md tells people to overwrite their own .env"
 
     assert "SETUP.md" in (REPO / "README.md").read_text()
+
+
+def test_shortcuts_print_the_command_they_run():
+    """Attendees watch the instructor type `k1` and get a result. If the short
+    name does not expand on screen, the demo looks like hidden setup — which is
+    corrosive in a session whose whole argument is that you can see everything.
+
+    Every shortcut must route through the helper that echoes first.
+    """
+    src = (REPO / "scripts" / "shortcuts.sh").read_text()
+    assert "_agentic_run" in src
+
+    helper = src[src.index("_agentic_run()"):src.index("_Q=")]
+    assert "printf" in helper and "eval" in helper, \
+        "the helper must print the command and then run it"
+
+    funcs = re.findall(r"^([a-z][a-z0-9]*)\(\)\s*\{(.*?)\}\s*$", src, re.M)
+    named = {n for n, _ in funcs} - {"_agentic_run", "cls"}
+    assert named >= {"k1", "k2", "s1", "s2", "rbac", "g1", "g2", "ev", "r", "v", "tour"}, \
+        f"shortcuts missing: {sorted({'k1','k2','s1','s2','rbac','g1','g2','ev','r','v','tour'} - named)}"
+
+    for name, body in funcs:
+        if name in ("_agentic_run", "cls"):
+            continue
+        assert "_agentic_run" in body, f"{name}() runs its command without printing it"
+
+
+def test_shortcuts_are_offered_to_attendees():
+    """They are only useful to the room if the room knows they exist."""
+    readme = " ".join((REPO / "README.md").read_text().split())
+    assert "scripts/shortcuts.sh" in readme
+    assert "prints the real command" in readme, \
+        "README does not explain that shortcuts expand on screen"
