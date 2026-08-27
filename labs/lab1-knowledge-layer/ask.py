@@ -116,7 +116,10 @@ def main() -> int:
                     help="how many runbooks to rank and display")
     ap.add_argument("--top-k", type=int, default=1,
                     help="how many of the ranked runbooks are passed to the model as context")
-    ap.add_argument("--retrieval-only", action="store_true", help="skip the LLM answer")
+    ap.add_argument("--retrieval-only", action="store_true",
+                    help="show the ranking only — skip the LLM call entirely. "
+                         "Useful when the question is which runbooks survive the "
+                         "filter, and when you have no API key.")
     ap.add_argument("--provider", default="anthropic", choices=["anthropic", "openai"])
     args = ap.parse_args()
 
@@ -138,7 +141,13 @@ def main() -> int:
     render_hits(hits, filtered=use_filter, context_k=args.top_k)
     context = hits[: args.top_k]
 
-    if args.retrieval_only or not hits:
+    if args.retrieval_only:
+        # Say why there is no answer. Running this next to a command without the
+        # flag and getting prose from one but not the other reads like a bug.
+        print(f"\n{DIM}(--retrieval-only: ranking only, no model call){RESET}\n")
+        return 0
+
+    if not hits:
         print()
         return 0
 

@@ -104,6 +104,14 @@ Deleting a ConfigMap in staging is fine; the pipeline regenerates it.
 
 ## 5 · Try to break it  · 5 min
 
+> **Note the `--retrieval-only` on two of these.** That flag skips the LLM call
+> on purpose — those two are about *which runbooks survive the filter*, so the
+> ranking is the whole answer and a written response would only get in the way.
+>
+> The Kafka one has no such flag, so it does call the model. **If you get a
+> ranking but no prose on the last two, nothing is wrong.** Drop
+> `--retrieval-only` from either and you'll get an answer too.
+
 Pick any of these:
 
 ```bash
