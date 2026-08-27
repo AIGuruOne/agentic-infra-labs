@@ -7,6 +7,19 @@
 # expanded to, so nothing is hidden behind a shortcut. Type the long form
 # yourself any time — the shortcuts save keystrokes, not understanding.
 
+# Clear any same-named aliases first.
+#
+# In an interactive shell, alias expansion happens BEFORE a function definition
+# is parsed. If `tour` is already an alias for `make tour`, then the line
+# `tour() { ... }` expands to `make tour() { ... }` and bash reports a syntax
+# error near `(` — pointing at a line that is perfectly valid. An earlier
+# version of this file used aliases, so anyone who sourced that in the same
+# terminal hits it.
+for _name in tour k1 k2 s1 s2 s3 s4 s5 s6 rbac g0 g1 g2 gcheck ev r v cls; do
+  unalias "$_name" 2>/dev/null
+done
+unset _name
+
 _agentic_run() {
   printf '\033[2m$ %s\033[0m\n' "$1"
   eval "$1"

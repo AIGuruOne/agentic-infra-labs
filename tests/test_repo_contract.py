@@ -1138,3 +1138,38 @@ def test_shortcuts_are_offered_to_attendees():
     assert "scripts/shortcuts.sh" in readme
     assert "prints the real command" in readme, \
         "README does not explain that shortcuts expand on screen"
+
+
+def test_shortcuts_survive_a_stale_alias_and_bash_3_2():
+    """Sourcing this failed with `syntax error near unexpected token '('` on a
+    line that is perfectly valid.
+
+    Cause: in an interactive shell, alias expansion happens BEFORE a function
+    definition is parsed. An earlier version of this file used aliases, so
+    anyone who had sourced that in the same terminal turned `tour() {` into
+    `make tour() {`. macOS ships bash 3.2, which is also what attendees have.
+    """
+    import subprocess
+
+    script = REPO / "scripts" / "shortcuts.sh"
+
+    # must clear same-named aliases before defining functions
+    src = script.read_text()
+    assert "unalias" in src, "shortcuts.sh does not clear stale aliases first"
+    assert src.index("unalias") < src.index("_agentic_run() {"), \
+        "the unalias loop must run before the first function definition"
+
+    # and must parse under the bash macOS actually ships
+    for shell in ("/bin/bash", "bash"):
+        proc = subprocess.run([shell, "-n", str(script)],
+                              capture_output=True, text=True, timeout=60)
+        assert proc.returncode == 0, f"{shell} cannot parse shortcuts.sh: {proc.stderr}"
+
+    # the real failing case, reproduced
+    proc = subprocess.run(
+        ["/bin/bash", "-i", "-c",
+         f'shopt -s expand_aliases; alias tour="make tour"; alias k1="x"; '
+         f'source {script} >/dev/null 2>&1; type -t tour'],
+        capture_output=True, text=True, timeout=60, cwd=REPO)
+    assert "function" in proc.stdout, \
+        f"sourcing over a stale alias still breaks: {proc.stderr[-300:]}"
